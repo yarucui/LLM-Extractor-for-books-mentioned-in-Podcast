@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "sisucyrcyr@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    // Validation Functions
+    function isValidPodcast(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 200;
+    }
+
+    function isValidEpisode(data) {
+      return data.title is string && data.title.size() > 0 && data.title.size() < 500 &&
+             data.podcastId is string;
+    }
+
+    function isValidBook(data) {
+      return data.title is string && data.title.size() > 0 && data.title.size() < 500;
+    }
+
+    function isValidMention(data) {
+      return data.bookTitle is string && 
+             data.episodeId is string && 
+             data.podcastId is string &&
+             data.mentionType in ['Strong Recommendation', 'Casual Mention', 'Author Interview', 'Critical Mention'] &&
+             data.strengthIndex is number && data.strengthIndex >= 1 && data.strengthIndex <= 10;
+    }
+
+    // Rules
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /podcasts/{podcastId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin() && isValidPodcast(request.resource.data);
+      allow delete: if isAdmin();
+
+      match /episodes/{episodeId} {
+        allow read: if isAuthenticated();
+        allow create, update: if isAdmin() && isValidEpisode(request.resource.data);
+        allow delete: if isAdmin();
+      }
+    }
+
+    match /books/{bookId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin() && isValidBook(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /mentions/{mentionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidMention(request.resource.data);
+      allow update: if isAdmin() && isValidMention(request.resource.data);
+      allow delete: if isAdmin();
+    }
+  }
+}

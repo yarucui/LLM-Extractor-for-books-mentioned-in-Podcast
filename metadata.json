@@ -1,0 +1,5 @@
+{
+  "name": "Podcast Book Database",
+  "description": "A comprehensive database and visualization tool for book mentions across hundreds of podcast episodes, powered by Gemini AI and Firebase.",
+  "requestFramePermissions": []
+}

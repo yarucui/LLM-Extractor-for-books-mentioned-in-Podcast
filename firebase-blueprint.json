@@ -1,0 +1,77 @@
+{
+  "entities": {
+    "Podcast": {
+      "title": "Podcast",
+      "description": "A podcast series.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "episodeCount": { "type": "number" },
+        "totalBookMentions": { "type": "number" }
+      },
+      "required": ["id", "name"]
+    },
+    "Episode": {
+      "title": "Episode",
+      "description": "A specific episode of a podcast.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "podcastId": { "type": "string" },
+        "title": { "type": "string" },
+        "transcript": { "type": "string" },
+        "processed": { "type": "boolean" },
+        "bookCount": { "type": "number" }
+      },
+      "required": ["id", "podcastId", "title"]
+    },
+    "Book": {
+      "title": "Book",
+      "description": "A book mentioned in a podcast.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "author": { "type": "string" },
+        "totalMentions": { "type": "number" },
+        "podcastIds": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["title"]
+    },
+    "Mention": {
+      "title": "Mention",
+      "description": "A specific instance of a book being mentioned.",
+      "type": "object",
+      "properties": {
+        "bookTitle": { "type": "string" },
+        "episodeId": { "type": "string" },
+        "podcastId": { "type": "string" },
+        "contextQuote": { "type": "string" },
+        "mentionType": { "type": "string" },
+        "strengthIndex": { "type": "number" },
+        "strengthReason": { "type": "string" },
+        "authorPresence": { "type": "boolean" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["bookTitle", "episodeId", "podcastId", "mentionType", "strengthIndex"]
+    }
+  },
+  "firestore": {
+    "/podcasts/{podcastId}": {
+      "schema": "Podcast",
+      "description": "Collection of podcast series."
+    },
+    "/podcasts/{podcastId}/episodes/{episodeId}": {
+      "schema": "Episode",
+      "description": "Episodes belonging to a podcast."
+    },
+    "/books/{bookId}": {
+      "schema": "Book",
+      "description": "Aggregated book data."
+    },
+    "/mentions/{mentionId}": {
+      "schema": "Mention",
+      "description": "Individual mention instances for global querying."
+    }
+  }
+}
