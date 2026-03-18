@@ -1,97 +1,82 @@
 import os
-import json
-import time
+import argparse
 from dotenv import load_dotenv
-import google.generativeai as genai
+from tqdm import tqdm
+from pipeline.loader import PodcastLoader
+from pipeline.extractor import BookExtractor
+from pipeline.verifier import BookVerifier
+from pipeline.storage import BookStorage
 
-# Load environment variables
-load_dotenv()
-
-# Configure Gemini
-api_key = os.getenv("GEMINI_API_KEY")
-if not api_key:
-    print("Error: GEMINI_API_KEY not found in .env file.")
-    exit(1)
-
-genai.configure(api_key=api_key)
-
-SYSTEM_INSTRUCTION = """You are a precise information extraction system.
-Extract books explicitly mentioned in a podcast episode transcript.
-Rules:
-1. Only extract books.
-2. Exclude podcasts, movies, TV shows, articles, songs, newsletters, essays, papers, brands, and generic concepts.
-3. Only include a book if it is explicitly named or very strongly supported by the transcript.
-4. Set author to null unless explicitly stated in the transcript.
-5. Use exact wording from the transcript when possible.
-6. Do not fabricate quotations.
-7. Return an empty list if no books are mentioned."""
-
-def process_file(file_path):
-    if not os.path.exists(file_path):
-        print(f"Error: File {file_path} not found.")
+def main():
+    # Load environment variables
+    load_dotenv()
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Podcast Book Mention Extraction Pipeline")
+    parser.add_argument("--raw_text_dir", default=os.getenv("RAW_TEXT_DIR", "raw_text"), help="Directory containing raw JSON files")
+    parser.add_argument("--output_file", default=os.getenv("OUTPUT_FILE", "book_mentions_research.csv"), help="Output CSV file")
+    parser.add_argument("--db_file", default=os.getenv("DB_FILE", "book_mentions_research.db"), help="Output SQLite database file")
+    parser.add_argument("--model", default=os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview"), help="Gemini model to use")
+    parser.add_argument("--api_key", default=os.getenv("GEMINI_API_KEY"), help="Gemini API key")
+    
+    args = parser.parse_args()
+    
+    if not args.api_key:
+        print("Error: GEMINI_API_KEY not found. Please set it in your .env file or pass it as an argument.")
         return
 
-    with open(file_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
+    # Initialize components
+    loader = PodcastLoader(args.raw_text_dir)
+    extractor = BookExtractor(args.api_key, args.model)
+    verifier = BookVerifier(args.api_key, args.model)
+    storage = BookStorage(args.output_file, args.db_file)
     
-    episodes = data if isinstance(data, list) else [data]
-    print(f"Found {len(episodes)} episodes. Starting extraction...")
-
-    model = genai.GenerativeModel(
-        model_name="gemini-3-flash-preview",
-        system_instruction=SYSTEM_INSTRUCTION
-    )
-
-    results = []
-
-    for ep in episodes:
-        title = ep.get('title', 'Untitled')
-        transcript = ep.get('transcript', '')
-        
-        if not transcript:
-            print(f"Skipping {title}: No transcript.")
-            continue
-
-        print(f"Processing: {title}...")
-        
-        # Simple chunking
-        chunk_size = 100000
-        chunks = [transcript[i:i+chunk_size] for i in range(0, len(transcript), chunk_size)]
-        
-        episode_mentions = []
-        for i, chunk in enumerate(chunks):
-            print(f"  Chunk {i+1}/{len(chunks)}...", end=" ", flush=True)
-            
-            response = model.generate_content(
-                chunk,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                )
-            )
-            
-            try:
-                chunk_data = json.loads(response.text)
-                # Ensure it's a list
-                if isinstance(chunk_data, list):
-                    episode_mentions.extend(chunk_data)
-                print(f"Done ({len(chunk_data) if isinstance(chunk_data, list) else 0} found)")
-            except Exception as e:
-                print(f"Error parsing JSON: {e}")
-
-        results.append({
-            "episode": title,
-            "mentions": episode_mentions
-        })
-
-    output_file = f"extraction_results_{int(time.time())}.json"
-    with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(results, f, indent=2)
+    # Get all JSON files in the raw_text directory
+    json_files = loader.get_all_json_files()
+    if not json_files:
+        print(f"No JSON files found in '{args.raw_text_dir}'. Please add some Podscan JSON files.")
+        return
     
-    print(f"\nSuccess! Results saved to {output_file}")
+    # Get already processed episode IDs to avoid re-processing
+    processed_episode_ids = storage.get_processed_episodes()
+    print(f"Found {len(processed_episode_ids)} already processed episodes.")
+    
+    # Process each JSON file
+    for filename in tqdm(json_files, desc="Processing Podcast Files"):
+        episodes = loader.load_episodes(filename)
+        
+        for ep in tqdm(episodes, desc=f"Extracting from {filename}", leave=False):
+            episode_id = str(ep.get('id', ep.get('episode_id', 'unknown')))
+            episode_name = ep.get('title', ep.get('episode_name', 'Untitled'))
+            transcript = ep.get('transcript', ep.get('content', ''))
+            
+            # Skip if already processed
+            if episode_id in processed_episode_ids:
+                continue
+            
+            if not transcript:
+                print(f"Warning: No transcript found for episode '{episode_name}' (ID: {episode_id})")
+                continue
+            
+            # 1. Extraction
+            mentions = extractor.extract_mentions(transcript, episode_name, episode_id)
+            
+            if not mentions:
+                continue
+            
+            # 2. Verification
+            verified_mentions = []
+            for m in tqdm(mentions, desc="Verifying Mentions", leave=False):
+                verified_m = verifier.verify_mention(m)
+                verified_mentions.append(verified_m)
+            
+            # 3. Storage
+            if verified_mentions:
+                storage.save_to_csv(verified_mentions)
+                storage.save_to_db(verified_mentions)
+                
+    print("\nExtraction and Verification Pipeline Complete!")
+    print(f"Results saved to {args.output_file} and {args.db_file}")
 
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) < 2:
-        print("Usage: python main.py <path-to-podcast-json>")
-    else:
-        process_file(sys.argv[1])
+    main()
