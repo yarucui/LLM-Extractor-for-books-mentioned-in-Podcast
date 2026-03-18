@@ -10,18 +10,18 @@ class BookExtractor:
         self.client = genai.Client(api_key=api_key)
         self.model_name = model_name
         self.system_instruction = """You are a precise research assistant specializing in podcast analysis.
-Your task is to extract book mentions from podcast transcripts.
+  Your task is to extract book mentions from podcast transcripts.
 
-For each book mention, extract:
-1. book_name: The title of the book.
-2. author_name: The name of the author (if mentioned).
-3. context_quote: A substantial quote from the transcript providing context (at least 2-3 sentences around the mention).
-4. mention_type: The nature of the mention (e.g., 'Recommendation', 'Critique', 'Casual Mention', 'Author Interview', 'Reference').
-5. recommend_intensity: A scale from 'Critical' to 'Strong Recommendation' (e.g., 'Critical', 'Negative', 'Neutral', 'Positive', 'Strong Recommendation').
-6. author_present: Boolean (True if the author is a guest on the episode, False otherwise).
+  For each book mention, extract:
+  1. book_name: The title of the book.
+  2. author_name: The name of the author (if mentioned).
+  3. context_quote: A substantial quote from the transcript providing context.
+  4. mention_type: The nature of the mention (e.g. Recommendation, Critique, Casual Mention, Author Interview, Reference, self-promotion, ads).
+  5. recommend_intensity: One of Critical, Negative, Neutral, Positive, Strong Recommendation.
+  6. author_present: Boolean (True if the author is a guest on the episode, False otherwise).
 
-Return a JSON list of objects. If no books are mentioned, return an empty list [].
-Do not include podcasts, movies, or TV shows. Only books."""
+  Return a JSON list of objects. If no books are mentioned, return an empty list [].
+  Do not include podcasts, movies, or TV shows. Only books."""
 
     def extract_mentions(self, transcript: str, episode_name: str, episode_id: str) -> List[Dict[str, Any]]:
         """
