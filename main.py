@@ -1,5 +1,6 @@
 import os
 import argparse
+import time
 from dotenv import load_dotenv
 from tqdm import tqdm
 from pipeline.loader import PodcastLoader
@@ -18,6 +19,8 @@ def main():
     parser.add_argument("--db_file", default=os.getenv("DB_FILE", "book_mentions_research.db"), help="Output SQLite database file")
     parser.add_argument("--model", default=os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview"), help="Gemini model to use")
     parser.add_argument("--api_key", default=os.getenv("GEMINI_API_KEY"), help="Gemini API key")
+    parser.add_argument("--batch_size", type=int, default=10, help="Number of episodes per batch")
+    parser.add_argument("--rate_limit_delay", type=int, default=10, help="Seconds to wait between batches to avoid rate limits")
     
     args = parser.parse_args()
     
@@ -45,37 +48,46 @@ def main():
     for filename in tqdm(json_files, desc="Processing Podcast Files"):
         episodes = loader.load_episodes(filename)
         
-        for ep in tqdm(episodes, desc=f"Extracting from {filename}", leave=False):
-            episode_id = str(ep.get('episode_id', 'unknown'))
-            episode_name = ep.get('episode_title', 'Untitled')
-            transcript = ep.get('episode_transcript', '')
+        # Filter out already processed episodes
+        pending_episodes = [
+            ep for ep in episodes 
+            if str(ep.get('episode_id', 'unknown')) not in processed_episode_ids and ep.get('episode_transcript')
+        ]
+        
+        if not pending_episodes:
+            continue
+
+        # Process in batches
+        for i in range(0, len(pending_episodes), args.batch_size):
+            batch = pending_episodes[i:i + args.batch_size]
             
-            # Skip if already processed
-            if episode_id in processed_episode_ids:
-                continue
+            print(f"\nProcessing batch {i//args.batch_size + 1} ({len(batch)} episodes)...")
             
-            if not transcript:
-                continue
+            # 1. Extraction (Batch)
+            mentions = extractor.extract_mentions_batch(batch)
             
-            # 1. Extraction
-            mentions = extractor.extract_mentions(transcript, episode_name, episode_id)
+            if mentions:
+                print(f"Found {len(mentions)} potential book mentions.")
+                
+                # 2. Verification (Individual)
+                verified_mentions = []
+                for m in tqdm(mentions, desc="Verifying Mentions", leave=False):
+                    verified_m = verifier.verify_mention(m)
+                    verified_mentions.append(verified_m)
+                    # Small delay between verifications if needed, but verifier is also subject to RPM
+                    time.sleep(1) 
+                
+                # 3. Storage
+                if verified_mentions:
+                    storage.save_to_csv(verified_mentions)
+                    storage.save_to_db(verified_mentions)
+            else:
+                print("No book mentions found in this batch.")
             
-            if not mentions:
-                # Still record that we processed this episode to avoid re-scanning empty ones
-                # We can add a dummy entry or just handle it in storage
-                # For now, let's just skip to next
-                continue
-            
-            # 2. Verification
-            verified_mentions = []
-            for m in tqdm(mentions, desc="Verifying Mentions", leave=False):
-                verified_m = verifier.verify_mention(m)
-                verified_mentions.append(verified_m)
-            
-            # 3. Storage
-            if verified_mentions:
-                storage.save_to_csv(verified_mentions)
-                storage.save_to_db(verified_mentions)
+            # Rate limiting delay between batches
+            if i + args.batch_size < len(pending_episodes):
+                print(f"Waiting {args.rate_limit_delay}s for rate limits...")
+                time.sleep(args.rate_limit_delay)
                 
     print("\nExtraction and Verification Pipeline Complete!")
     print(f"Results saved to {args.output_file} and {args.db_file}")
