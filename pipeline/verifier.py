@@ -2,7 +2,7 @@ import os
 import json
 from typing import List, Dict, Any
 import google.generativeai as genai
-from .utils import count_tokens
+from .utils import count_words
 
 class BookVerifier:
     def __init__(self, api_key: str, model_name: str = "gemini-3.1-flash-lite-preview"):
@@ -49,8 +49,8 @@ If the mention is not a book, set is_book to False."""
             if isinstance(verification, dict):
                 # Update the mention with verification results
                 mention.update(verification)
-                # Recalculate token length of the context quote in Python (as requested)
-                mention['token_length'] = count_tokens(mention.get('context_quote', ''))
+                # Recalculate word count of the context quote in Python
+                mention['word_count'] = count_words(mention.get('context_quote', ''))
                 return mention
             
             return mention

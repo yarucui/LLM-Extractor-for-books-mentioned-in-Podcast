@@ -2,7 +2,7 @@ import os
 import json
 from typing import List, Dict, Any
 import google.generativeai as genai
-from .utils import count_tokens
+from .utils import count_words
 
 class BookExtractor:
     def __init__(self, api_key: str, model_name: str = "gemini-3.1-flash-lite-preview"):
@@ -22,13 +22,13 @@ For each book mention, extract:
 Return a JSON list of objects. If no books are mentioned, return an empty list [].
 Do not include podcasts, movies, or TV shows. Only books."""
 
-    def extract_mentions(self, transcript: str, episode_name: str, episode_id: str) -> List[Dict[str, Any]]:
+    def extract_mentions(self, transcript: str, episode_name: str, episode_id: str) -> List[Dict[Dict[str, Any], Any]]:
         """
         Extracts book mentions from a transcript.
         Handles chunking if the transcript is too long.
         """
-        # Simple chunking logic (e.g., 30k characters per chunk)
-        chunk_size = 30000
+        # Simple chunking logic (e.g., 50k characters per chunk for research context)
+        chunk_size = 50000
         chunks = [transcript[i:i+chunk_size] for i in range(0, len(transcript), chunk_size)]
         
         all_mentions = []
@@ -52,8 +52,8 @@ Do not include podcasts, movies, or TV shows. Only books."""
                         # Add metadata
                         m['episode_name'] = episode_name
                         m['episode_id'] = episode_id
-                        # Calculate token length of the context quote
-                        m['token_length'] = count_tokens(m.get('context_quote', ''))
+                        # Calculate word count of the context quote
+                        m['word_count'] = count_words(m.get('context_quote', ''))
                         all_mentions.append(m)
                 
             except Exception as e:

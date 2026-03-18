@@ -46,22 +46,24 @@ def main():
         episodes = loader.load_episodes(filename)
         
         for ep in tqdm(episodes, desc=f"Extracting from {filename}", leave=False):
-            episode_id = str(ep.get('id', ep.get('episode_id', 'unknown')))
-            episode_name = ep.get('title', ep.get('episode_name', 'Untitled'))
-            transcript = ep.get('transcript', ep.get('content', ''))
+            episode_id = str(ep.get('episode_id', 'unknown'))
+            episode_name = ep.get('episode_title', 'Untitled')
+            transcript = ep.get('episode_transcript', '')
             
             # Skip if already processed
             if episode_id in processed_episode_ids:
                 continue
             
             if not transcript:
-                print(f"Warning: No transcript found for episode '{episode_name}' (ID: {episode_id})")
                 continue
             
             # 1. Extraction
             mentions = extractor.extract_mentions(transcript, episode_name, episode_id)
             
             if not mentions:
+                # Still record that we processed this episode to avoid re-scanning empty ones
+                # We can add a dummy entry or just handle it in storage
+                # For now, let's just skip to next
                 continue
             
             # 2. Verification

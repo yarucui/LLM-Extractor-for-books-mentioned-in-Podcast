@@ -59,7 +59,7 @@ python main.py --raw_text_dir my_data --output_file results.csv --model gemini-3
 - `mention_type`: Nature of the mention (Recommendation, Critique, etc.).
 - `recommend_intensity`: Scale from 'Critical' to 'Strong Recommendation'.
 - `author_present`: Boolean (True if author is a guest).
-- `token_length`: Number of tokens in the context quote.
+- `word_count`: Number of words in the context quote.
 - `is_book`: Verification result (Is it a book?).
 - `author_correct`: Verification result (Is the author correct?).
 - `mention_type_correct`: Verification result (Is the mention type accurate?).
