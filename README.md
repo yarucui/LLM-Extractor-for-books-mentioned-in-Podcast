@@ -29,6 +29,7 @@ A research-oriented Python pipeline to extract and verify book mentions from pod
     OUTPUT_FILE=book_mentions_research.csv
     DB_FILE=book_mentions_research.db
     ```
+    Note: The pipeline uses the new **Google GenAI SDK** (`google-genai`).
 
 3.  **Prepare your data**:
     Place your Podscan JSON files in the `raw_text` directory. The pipeline handles both a list of episodes or a podcast object with an `episodes` key.

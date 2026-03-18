@@ -1,13 +1,14 @@
 import os
 import json
 from typing import List, Dict, Any
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from .utils import count_words
 
 class BookExtractor:
     def __init__(self, api_key: str, model_name: str = "gemini-3.1-flash-lite-preview"):
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(model_name)
+        self.client = genai.Client(api_key=api_key)
+        self.model_name = model_name
         self.system_instruction = """You are a precise research assistant specializing in podcast analysis.
 Your task is to extract book mentions from podcast transcripts.
 
@@ -22,7 +23,7 @@ For each book mention, extract:
 Return a JSON list of objects. If no books are mentioned, return an empty list [].
 Do not include podcasts, movies, or TV shows. Only books."""
 
-    def extract_mentions(self, transcript: str, episode_name: str, episode_id: str) -> List[Dict[Dict[str, Any], Any]]:
+    def extract_mentions(self, transcript: str, episode_name: str, episode_id: str) -> List[Dict[str, Any]]:
         """
         Extracts book mentions from a transcript.
         Handles chunking if the transcript is too long.
@@ -37,12 +38,13 @@ Do not include podcasts, movies, or TV shows. Only books."""
             prompt = f"Transcript Chunk {i+1}/{len(chunks)}:\n\n{chunk}"
             
             try:
-                response = self.model.generate_content(
-                    prompt,
-                    generation_config=genai.GenerationConfig(
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=self.system_instruction,
                         response_mime_type="application/json",
-                    ),
-                    system_instruction=self.system_instruction
+                    )
                 )
                 
                 # Parse JSON response

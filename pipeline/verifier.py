@@ -1,13 +1,14 @@
 import os
 import json
 from typing import List, Dict, Any
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from .utils import count_words
 
 class BookVerifier:
     def __init__(self, api_key: str, model_name: str = "gemini-3.1-flash-lite-preview"):
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(model_name)
+        self.client = genai.Client(api_key=api_key)
+        self.model_name = model_name
         self.system_instruction = """You are a senior research auditor.
 Your task is to verify the accuracy of book mentions extracted from podcast transcripts.
 
@@ -36,12 +37,13 @@ If the mention is not a book, set is_book to False."""
         prompt = f"Book Mention to Verify:\n\n{json.dumps(mention, indent=2)}"
         
         try:
-            response = self.model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=self.system_instruction,
                     response_mime_type="application/json",
-                ),
-                system_instruction=self.system_instruction
+                )
             )
             
             # Parse JSON response
