@@ -10,55 +10,61 @@ class BookExtractor:
         self.client = genai.Client(api_key=api_key)
         self.model_name = model_name
         self.system_instruction = """You are a precise research assistant specializing in podcast analysis.
-Your task is to extract book mentions from podcast transcripts.
+  Your task is to extract book mentions from podcast transcripts.
 
-For each book mention, extract:
-1. book_name: The title of the book.
-2. author_name: The name of the author (if mentioned).
-3. context_quote: A substantial quote from the transcript providing context (at least 2-3 sentences around the mention).
-4. mention_type: The nature of the mention (e.g., 'Recommendation', 'Critique', 'Casual Mention', 'Author Interview', 'Reference').
-5. recommend_intensity: A scale from 'Critical' to 'Strong Recommendation' (e.g., 'Critical', 'Negative', 'Neutral', 'Positive', 'Strong Recommendation').
-6. author_present: Boolean (True if the author is a guest on the episode, False otherwise).
+  For each book mention, extract:
+  1. book_name: The title of the book.
+  2. author_name: The name of the author (if mentioned).
+  3. context_quote: A substantial quote from the transcript providing context.
+  4. mention_type: The nature of the mention (e.g. Recommendation, Critique, Casual Mention, Author Interview, Reference, self-promotion, ads).
+  5. recommend_intensity: One of Critical, Negative, Neutral, Positive, Strong Recommendation.
+  6. author_present: Boolean (True if the author is a guest on the episode, False otherwise).
+  7. episode_id: The ID of the episode where the mention occurred.
 
-Return a JSON list of objects. If no books are mentioned, return an empty list [].
-Do not include podcasts, movies, or TV shows. Only books."""
+  Return a JSON list of objects. If no books are mentioned, return an empty list [].
+  Do not include podcasts, movies, or TV shows. Only books."""
 
-    def extract_mentions(self, transcript: str, episode_name: str, episode_id: str) -> List[Dict[str, Any]]:
+    def extract_mentions_batch(self, episodes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Extracts book mentions from a transcript.
-        Handles chunking if the transcript is too long.
+        Extracts book mentions from a batch of episodes.
         """
-        # Simple chunking logic (e.g., 50k characters per chunk for research context)
-        chunk_size = 50000
-        chunks = [transcript[i:i+chunk_size] for i in range(0, len(transcript), chunk_size)]
-        
-        all_mentions = []
-        
-        for i, chunk in enumerate(chunks):
-            prompt = f"Transcript Chunk {i+1}/{len(chunks)}:\n\n{chunk}"
-            
-            try:
-                response = self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=self.system_instruction,
-                        response_mime_type="application/json",
-                    )
+        combined_prompt = "Extract book mentions from the following podcast episodes:\n\n"
+        for ep in episodes:
+            combined_prompt += f"--- EPISODE START ---\n"
+            combined_prompt += f"Episode ID: {ep['episode_id']}\n"
+            combined_prompt += f"Episode Title: {ep['episode_title']}\n"
+            combined_prompt += f"Transcript:\n{ep['episode_transcript']}\n"
+            combined_prompt += f"--- EPISODE END ---\n\n"
+
+        try:
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=combined_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=self.system_instruction,
+                    response_mime_type="application/json",
                 )
+            )
+            
+            # Parse JSON response
+            mentions = json.loads(response.text)
+            all_mentions = []
+            
+            if isinstance(mentions, list):
+                # Create a map of episode_id to episode_title for metadata
+                id_to_title = {ep['episode_id']: ep['episode_title'] for ep in episodes}
                 
-                # Parse JSON response
-                mentions = json.loads(response.text)
-                if isinstance(mentions, list):
-                    for m in mentions:
-                        # Add metadata
-                        m['episode_name'] = episode_name
-                        m['episode_id'] = episode_id
-                        # Calculate word count of the context quote
-                        m['word_count'] = count_words(m.get('context_quote', ''))
-                        all_mentions.append(m)
+                for m in mentions:
+                    # Add metadata
+                    eid = str(m.get('episode_id', 'unknown'))
+                    m['episode_id'] = eid
+                    m['episode_name'] = id_to_title.get(eid, 'Unknown Episode')
+                    # Calculate word count of the context quote
+                    m['word_count'] = count_words(m.get('context_quote', ''))
+                    all_mentions.append(m)
+            
+            return all_mentions
                 
-            except Exception as e:
-                print(f"Error extracting from chunk {i+1}: {e}")
-                
-        return all_mentions
+        except Exception as e:
+            print(f"Error extracting from batch: {e}")
+            return []

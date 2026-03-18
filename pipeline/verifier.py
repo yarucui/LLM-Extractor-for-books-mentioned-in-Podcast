@@ -9,26 +9,44 @@ class BookVerifier:
     def __init__(self, api_key: str, model_name: str = "gemini-3.1-flash-lite-preview"):
         self.client = genai.Client(api_key=api_key)
         self.model_name = model_name
-        self.system_instruction = """You are a senior research auditor.
-Your task is to verify the accuracy of book mentions extracted from podcast transcripts.
+        self.system_instruction = """You are a strict verification system for extracted book mentions.
+        Your task is to validate whether each extracted field is correct based ONLY on the provided context_quote.
 
-For each mention, you will receive:
-1. book_name: The title of the book.
-2. author_name: The name of the author.
-3. context_quote: A substantial quote from the transcript.
-4. mention_type: The nature of the mention.
-5. recommend_intensity: A scale from 'Critical' to 'Strong Recommendation'.
-6. author_present: Boolean (True if the author is a guest).
+        RULES:
+        1. Do NOT use external knowledge.
+        2. Only rely on the context_quote.
+        3. If the quote does not support the field, mark it as incorrect.
 
-Verify:
-1. is_book: Is this definitely a book? (Exclude movies, TV shows, etc.)
-2. author_correct: Is the author name correct based on the context? (Hallucination check)
-3. mention_type_correct: Is the mention type accurate based on the context?
-4. intensity_appropriate: Is the recommendation intensity appropriate based on the context?
-5. author_present_correct: Is the author actually present as a guest?
+        For each mention, evaluate:
 
-Return a JSON object with these boolean fields and a 'verification_notes' string.
-If the mention is not a book, set is_book to False."""
+        - is_book: true if this is clearly a book (not movie, podcast, etc.)
+        - author_correct: true if the author is explicitly supported by the quote
+        - mention_type_correct: true if the label matches the quote
+        - intensity_correct: true if the sentiment matches the quote
+        - author_present_correct: true if the quote clearly indicates the author is present
+
+        If a field is incorrect:
+        - Provide a corrected value in a separate field
+
+        OUTPUT FORMAT:
+
+        {
+        "is_book": true/false,
+        "author_correct": true/false,
+        "correct_author": null or string,
+        "mention_type_correct": true/false,
+        "correct_mention_type": null or string,
+        "intensity_correct": true/false,
+        "correct_intensity": null or string,
+        "author_present_correct": true/false,
+        "correct_author_present": null or boolean,
+        "verification_notes": "short explanation"
+        }
+
+        IMPORTANT:
+        - Always return ALL fields
+        - Never mix booleans and strings in the same field
+        - Keep verification_notes concise"""
 
     def verify_mention(self, mention: Dict[str, Any]) -> Dict[str, Any]:
         """
