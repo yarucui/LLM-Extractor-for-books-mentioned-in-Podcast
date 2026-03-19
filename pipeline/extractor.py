@@ -6,7 +6,7 @@ from google.genai import types
 from .utils import count_words
 
 class BookExtractor:
-    def __init__(self, api_key: str, model_name: str = "gemini-2.5-flash-lite"):
+    def __init__(self, api_key: str, model_name: str = "gemini-1.5-flash"):
         self.client = genai.Client(api_key=api_key)
         self.model_name = model_name
         self.system_instruction = """You are a precise research assistant specializing in podcast analysis.
@@ -61,10 +61,11 @@ class BookExtractor:
             
             # Clean response text for JSON parsing
             text = response.text.strip()
-            if text.startswith("```json"):
-                text = text[7:]
-            if text.endswith("```"):
-                text = text[:-3]
+            # Remove markdown code blocks if present
+            if "```json" in text:
+                text = text.split("```json")[1].split("```")[0]
+            elif "```" in text:
+                text = text.split("```")[1].split("```")[0]
             text = text.strip()
 
             # Parse JSON response
