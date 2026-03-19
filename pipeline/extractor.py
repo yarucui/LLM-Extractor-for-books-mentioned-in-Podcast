@@ -6,7 +6,7 @@ from google.genai import types
 from .utils import count_words
 
 class BookExtractor:
-    def __init__(self, api_key: str, model_name: str = "gemini-3.1-flash-lite-preview"):
+    def __init__(self, api_key: str, model_name: str = "gemini-2.5-flash-lite"):
         self.client = genai.Client(api_key=api_key)
         self.model_name = model_name
         self.system_instruction = """You are a precise research assistant specializing in podcast analysis.
@@ -22,8 +22,9 @@ class BookExtractor:
   2. author_name: The full name of the author.
   3. isbn: The 13-digit ISBN of the book (if identifiable). This helps ensure unique entity identification.
   4. context_quote: A substantial quote from the transcript providing context.
-  5. mention_type: The nature of the mention (e.g. Recommendation, Critique, Casual Mention, Author Interview, Reference, self-promotion, ads).
-  6. recommend_intensity: One of Critical, Negative, Neutral, Positive, Strong Recommendation.
+  5. mention_type: The nature of the mention， must be one of:
+  ["critique", "reference", "recommendation", "author_interview", "self_promotion", "advertisement"].
+  6. recommend_intensity: must be one of: ["critical", "negative", "neutral", "positive", "strong_recommendation"]
   7. author_present: Boolean (True if the author is a guest on the episode, False otherwise).
   8. episode_id: The ID of the episode where the mention occurred.
 
@@ -43,13 +44,17 @@ class BookExtractor:
             combined_prompt += f"--- EPISODE END ---\n\n"
 
         try:
+            grounding_tool = types.Tool(
+                google_search=types.GoogleSearch()
+            )
+            
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=combined_prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=self.system_instruction,
                     response_mime_type="application/json",
-                    tools=[{ "google_search": {} }]
+                    tools=[grounding_tool]
                 )
             )
             
