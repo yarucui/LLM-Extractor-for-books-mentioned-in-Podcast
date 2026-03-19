@@ -9,50 +9,30 @@ class BookVerifier:
     def __init__(self, api_key: str, model_name: str = "gemini-3.1-flash-lite-preview"):
         self.client = genai.Client(api_key=api_key)
         self.model_name = model_name
-        self.system_instruction = """You are a strict verification system for extracted book mentions.
-        Your task is to validate whether each extracted field is correct based ONLY on the provided context_quote.
+        self.system_instruction = """You are a senior research auditor specializing in book metadata.
+        Your task is to verify and normalize book mentions.
 
-        RULES:
-        1. Do NOT use external knowledge.
-        2. Only rely on the context_quote.
-        3. If the quote does not support the field, mark it as incorrect.
-
-        For each mention, evaluate:
-
-        - is_book: true if this is clearly a book (not movie, podcast, etc.)
-        - author_correct: true if the author is explicitly supported by the quote
-        - mention_type_correct: true if the label matches the quote
-        - intensity_correct: true if the sentiment matches the quote
-        - author_present_correct: true if the quote clearly indicates the author is present
-
-        If a field is incorrect:
-        - Provide a corrected value in a separate field
+        For each mention, use your internal knowledge and the provided search tool to:
+        1. is_book: Confirm if this is definitely a book (true/false).
+        2. normalized_book_name: Provide the OFFICIAL FULL TITLE of the book.
+        3. normalized_author_name: Provide the OFFICIAL FULL NAME of the author.
+        4. isbn_verified: Provide the verified 13-digit ISBN.
+        5. verification_notes: Briefly explain any corrections made (e.g., "Normalized title from 'Lore' to 'The World of Lore'").
 
         OUTPUT FORMAT:
-
         {
-        "is_book": true/false,
-        "author_correct": true/false,
-        "correct_author": null or string,
-        "mention_type_correct": true/false,
-        "correct_mention_type": null or string,
-        "intensity_correct": true/false,
-        "correct_intensity": null or string,
-        "author_present_correct": true/false,
-        "correct_author_present": null or boolean,
-        "verification_notes": "short explanation"
-        }
-
-        IMPORTANT:
-        - Always return ALL fields
-        - Never mix booleans and strings in the same field
-        - Keep verification_notes concise"""
+        "is_book": boolean,
+        "normalized_book_name": string,
+        "normalized_author_name": string,
+        "isbn_verified": string or null,
+        "verification_notes": string
+        }"""
 
     def verify_mention(self, mention: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Verifies a single book mention.
+        Verifies and normalizes a single book mention.
         """
-        prompt = f"Book Mention to Verify:\n\n{json.dumps(mention, indent=2)}"
+        prompt = f"Verify and normalize this book mention. Use Google Search to find official metadata if needed:\n\n{json.dumps(mention, indent=2)}"
         
         try:
             response = self.client.models.generate_content(
@@ -61,6 +41,7 @@ class BookVerifier:
                 config=types.GenerateContentConfig(
                     system_instruction=self.system_instruction,
                     response_mime_type="application/json",
+                    tools=[{ "google_search": {} }]
                 )
             )
             

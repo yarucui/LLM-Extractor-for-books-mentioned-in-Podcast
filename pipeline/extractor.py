@@ -12,14 +12,20 @@ class BookExtractor:
         self.system_instruction = """You are a precise research assistant specializing in podcast analysis.
   Your task is to extract book mentions from podcast transcripts.
 
+  NORMALIZATION RULES:
+  1. Always resolve nicknames, partial titles, or acronyms to the OFFICIAL FULL LIBRARY TITLE (e.g., 'Lore' -> 'The World of Lore').
+  2. Use your internal knowledge and the provided search tool to identify the correct book entity.
+  3. If multiple books have similar names, use the context to determine the most likely one.
+
   For each book mention, extract:
-  1. book_name: The title of the book.
-  2. author_name: The name of the author (if mentioned).
-  3. context_quote: A substantial quote from the transcript providing context.
-  4. mention_type: The nature of the mention (e.g. Recommendation, Critique, Casual Mention, Author Interview, Reference, self-promotion, ads).
-  5. recommend_intensity: One of Critical, Negative, Neutral, Positive, Strong Recommendation.
-  6. author_present: Boolean (True if the author is a guest on the episode, False otherwise).
-  7. episode_id: The ID of the episode where the mention occurred.
+  1. book_name: The OFFICIAL FULL TITLE of the book.
+  2. author_name: The full name of the author.
+  3. isbn: The 13-digit ISBN of the book (if identifiable). This helps ensure unique entity identification.
+  4. context_quote: A substantial quote from the transcript providing context.
+  5. mention_type: The nature of the mention (e.g. Recommendation, Critique, Casual Mention, Author Interview, Reference, self-promotion, ads).
+  6. recommend_intensity: One of Critical, Negative, Neutral, Positive, Strong Recommendation.
+  7. author_present: Boolean (True if the author is a guest on the episode, False otherwise).
+  8. episode_id: The ID of the episode where the mention occurred.
 
   Return a JSON list of objects. If no books are mentioned, return an empty list [].
   Do not include podcasts, movies, or TV shows. Only books."""
@@ -28,7 +34,7 @@ class BookExtractor:
         """
         Extracts book mentions from a batch of episodes.
         """
-        combined_prompt = "Extract book mentions from the following podcast episodes:\n\n"
+        combined_prompt = "Extract and normalize book mentions from the following podcast episodes. Use Google Search to verify titles and authors:\n\n"
         for ep in episodes:
             combined_prompt += f"--- EPISODE START ---\n"
             combined_prompt += f"Episode ID: {ep['episode_id']}\n"
@@ -43,6 +49,7 @@ class BookExtractor:
                 config=types.GenerateContentConfig(
                     system_instruction=self.system_instruction,
                     response_mime_type="application/json",
+                    tools=[{ "google_search": {} }]
                 )
             )
             
