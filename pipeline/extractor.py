@@ -29,13 +29,15 @@ class BookExtractor:
   8. episode_id: The ID of the episode where the mention occurred.
 
   Return a JSON list of objects. If no books are mentioned, return an empty list [].
-  Do not include podcasts, movies, or TV shows. Only books."""
+  Do not include podcasts, movies, or TV shows. Only books.
+  IMPORTANT: Your response must be a valid JSON string and nothing else. Do not include markdown formatting like ```json.
+  """
 
     def extract_mentions_batch(self, episodes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Extracts book mentions from a batch of episodes.
         """
-        combined_prompt = "Extract and normalize book mentions from the following podcast episodes. Use Google Search to verify titles and authors:\n\n"
+        combined_prompt = "Extract and normalize book mentions from the following podcast episodes. Use Google Search to verify titles and authors. Return the results as a JSON list:\n\n"
         for ep in episodes:
             combined_prompt += f"--- EPISODE START ---\n"
             combined_prompt += f"Episode ID: {ep['episode_id']}\n"
@@ -53,13 +55,20 @@ class BookExtractor:
                 contents=combined_prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=self.system_instruction,
-                    response_mime_type="application/json",
                     tools=[grounding_tool]
                 )
             )
             
+            # Clean response text for JSON parsing
+            text = response.text.strip()
+            if text.startswith("```json"):
+                text = text[7:]
+            if text.endswith("```"):
+                text = text[:-3]
+            text = text.strip()
+
             # Parse JSON response
-            mentions = json.loads(response.text)
+            mentions = json.loads(text)
             all_mentions = []
             
             if isinstance(mentions, list):

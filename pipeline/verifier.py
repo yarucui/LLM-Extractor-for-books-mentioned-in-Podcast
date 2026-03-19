@@ -26,13 +26,15 @@ class BookVerifier:
         "normalized_author_name": boolean,
         "isbn_verified": boolean,
         "verification_notes": string
-        }"""
+        }
+        IMPORTANT: Your response must be a valid JSON object and nothing else. Do not include markdown formatting like ```json.
+        """
 
     def verify_mention(self, mention: Dict[str, Any]) -> Dict[str, Any]:
         """
         Verifies and normalizes a single book mention.
         """
-        prompt = f"Verify and normalize this book mention. Use Google Search to find official metadata if needed:\n\n{json.dumps(mention, indent=2)}"
+        prompt = f"Verify and normalize this book mention. Use Google Search to find official metadata if needed. Return the result as a JSON object:\n\n{json.dumps(mention, indent=2)}"
         
         try:
             grounding_tool = types.Tool(
@@ -44,13 +46,20 @@ class BookVerifier:
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=self.system_instruction,
-                    response_mime_type="application/json",
                     tools=[grounding_tool]
                 )
             )
             
+            # Clean response text for JSON parsing
+            text = response.text.strip()
+            if text.startswith("```json"):
+                text = text[7:]
+            if text.endswith("```"):
+                text = text[:-3]
+            text = text.strip()
+
             # Parse JSON response
-            verification = json.loads(response.text)
+            verification = json.loads(text)
             if isinstance(verification, dict):
                 # Update the mention with verification results
                 mention.update(verification)
