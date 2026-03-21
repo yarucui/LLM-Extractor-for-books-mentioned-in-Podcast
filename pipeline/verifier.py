@@ -20,6 +20,7 @@ class BookVerifier:
         5. verification_notes: Briefly explain any corrections made (e.g., "Normalized title from 'Lore' to 'The World of Lore'").
 
         OUTPUT FORMAT:
+        Return your findings as a JSON object with the following structure:
         {
         "is_book": boolean,
         "is_normalized_book_name": boolean,
@@ -27,7 +28,6 @@ class BookVerifier:
         "isbn_verified": boolean,
         "verification_notes": string
         }
-        IMPORTANT: Your response must be a valid JSON object and nothing else. Do not include markdown formatting like ```json.
         """
 
     def verify_mention(self, mention: Dict[str, Any]) -> Dict[str, Any]:
@@ -53,13 +53,18 @@ class BookVerifier:
             
             # Check if response has text safely
             try:
-                raw_text = response.text
+                # Access parts directly to see if there's anything useful
+                parts = response.candidates[0].content.parts if response.candidates else []
+                raw_text = response.text if response.text else ""
+                
+                if not raw_text:
+                    # Check if there are tool calls or other parts
+                    has_tool_calls = any(part.tool_call for part in parts) if parts else False
+                    print(f"Warning: No text in response. Finish reason: {response.candidates[0].finish_reason if response.candidates else 'Unknown'}. Has tool calls: {has_tool_calls}")
+                    # If it's just tool calls without a final response, the model might be stuck in a loop or failing to summarize.
+                    return mention
             except Exception as e:
                 print(f"Warning: Could not access response text: {e}")
-                return mention
-                
-            if not raw_text:
-                print(f"Warning: No text in response. Finish reason: {response.candidates[0].finish_reason if response.candidates else 'Unknown'}")
                 return mention
 
             # Clean response text for JSON parsing
@@ -67,15 +72,17 @@ class BookVerifier:
             
             # Robust JSON object extraction using regex
             import re
-            json_match = re.search(r'\{.*\}', text, re.DOTALL)
-            if json_match:
-                text = json_match.group(0)
+            # Look for the last JSON object in the text (in case there are citations before it)
+            json_matches = list(re.finditer(r'\{.*\}', text, re.DOTALL))
+            if json_matches:
+                # Take the last match as it's most likely the final JSON object after citations
+                text = json_matches[-1].group(0)
             else:
                 # Fallback to markdown block cleaning if regex fails
                 if "```json" in text:
-                    text = text.split("```json")[1].split("```")[0]
+                    text = text.split("```json")[-1].split("```")[0]
                 elif "```" in text:
-                    text = text.split("```")[1].split("```")[0]
+                    text = text.split("```")[-1].split("```")[0]
             
             text = text.strip()
 
@@ -84,7 +91,10 @@ class BookVerifier:
             try:
                 verification = json.loads(text, strict=False)
             except json.JSONDecodeError as e:
-                print(f"JSON parsing error during verification: {e}")
+                # Log a snippet of the problematic text for debugging
+                if text:
+                    print(f"JSON parsing error during verification: {e}")
+                    print(f"Problematic text snippet: {text[:100]}...{text[-100:]}")
                 return mention
             if isinstance(verification, dict):
                 # Update the mention with verification results

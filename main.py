@@ -71,11 +71,19 @@ def main():
                 
                 # 2. Verification (Individual)
                 verified_mentions = []
-                for m in tqdm(mentions, desc="Verifying Mentions", leave=False):
-                    verified_m = verifier.verify_mention(m)
-                    verified_mentions.append(verified_m)
-                    # Small delay between verifications if needed, but verifier is also subject to RPM
-                    time.sleep(1) 
+                try:
+                    for m in tqdm(mentions, desc="Verifying Mentions", leave=False):
+                        try:
+                            verified_m = verifier.verify_mention(m)
+                            verified_mentions.append(verified_m)
+                        except Exception as ve:
+                            print(f"Error verifying mention: {ve}")
+                            verified_mentions.append(m)
+                        # Small delay between verifications if needed, but verifier is also subject to RPM
+                        time.sleep(1) 
+                except KeyboardInterrupt:
+                    print("\nVerification interrupted by user. Saving progress so far...")
+                    # Continue to storage with what we have
                 
                 # 3. Storage
                 if verified_mentions:
