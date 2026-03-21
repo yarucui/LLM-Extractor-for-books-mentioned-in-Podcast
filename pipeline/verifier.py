@@ -46,10 +46,16 @@ class BookVerifier:
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=self.system_instruction,
-                    tools=[grounding_tool]
+                    tools=[grounding_tool],
+                    max_output_tokens=2048
                 )
             )
             
+            # Check if response has text
+            if not response.text:
+                print(f"Warning: No text in response. Finish reason: {response.candidates[0].finish_reason if response.candidates else 'Unknown'}")
+                return mention
+
             # Clean response text for JSON parsing
             text = response.text.strip()
             # Remove markdown code blocks if present
@@ -60,7 +66,12 @@ class BookVerifier:
             text = text.strip()
 
             # Parse JSON response
-            verification = json.loads(text)
+            # Use strict=False to allow control characters like newlines inside strings
+            try:
+                verification = json.loads(text, strict=False)
+            except json.JSONDecodeError:
+                # If parsing fails, return the original mention
+                raise
             if isinstance(verification, dict):
                 # Update the mention with verification results
                 mention.update(verification)

@@ -55,10 +55,16 @@ class BookExtractor:
                 contents=combined_prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=self.system_instruction,
-                    tools=[grounding_tool]
+                    tools=[grounding_tool],
+                    max_output_tokens=8192
                 )
             )
             
+            # Check if response has text
+            if not response.text:
+                print(f"Warning: No text in response. Finish reason: {response.candidates[0].finish_reason if response.candidates else 'Unknown'}")
+                return []
+
             # Clean response text for JSON parsing
             text = response.text.strip()
             # Remove markdown code blocks if present
@@ -69,7 +75,18 @@ class BookExtractor:
             text = text.strip()
 
             # Parse JSON response
-            mentions = json.loads(text)
+            # Use strict=False to allow control characters like newlines inside strings
+            try:
+                mentions = json.loads(text, strict=False)
+            except json.JSONDecodeError:
+                # Fallback: try to clean up some common issues
+                # Replace unescaped newlines inside strings (very basic attempt)
+                # This is risky but sometimes helps with large model outputs
+                cleaned_text = text.replace('\n', '\\n').replace('\r', '\\r')
+                # But we don't want to escape the actual structural newlines... 
+                # Better to just log the error and return empty for now, 
+                # or try a more sophisticated JSON repair if needed.
+                raise
             all_mentions = []
             
             if isinstance(mentions, list):
