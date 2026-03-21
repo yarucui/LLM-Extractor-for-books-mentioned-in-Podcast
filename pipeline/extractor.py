@@ -60,33 +60,43 @@ class BookExtractor:
                 )
             )
             
-            # Check if response has text
-            if not response.text:
+            # Check if response has text safely
+            try:
+                raw_text = response.text
+            except Exception as e:
+                print(f"Warning: Could not access response text: {e}")
+                return []
+                
+            if not raw_text:
                 print(f"Warning: No text in response. Finish reason: {response.candidates[0].finish_reason if response.candidates else 'Unknown'}")
                 return []
 
             # Clean response text for JSON parsing
-            text = response.text.strip()
-            # Remove markdown code blocks if present
-            if "```json" in text:
-                text = text.split("```json")[1].split("```")[0]
-            elif "```" in text:
-                text = text.split("```")[1].split("```")[0]
+            text = raw_text.strip()
+            
+            # Robust JSON array extraction using regex
+            import re
+            json_match = re.search(r'\[\s*\{.*\}\s*\]', text, re.DOTALL)
+            if json_match:
+                text = json_match.group(0)
+            else:
+                # Fallback to markdown block cleaning if regex fails
+                if "```json" in text:
+                    text = text.split("```json")[1].split("```")[0]
+                elif "```" in text:
+                    text = text.split("```")[1].split("```")[0]
+            
             text = text.strip()
 
             # Parse JSON response
             # Use strict=False to allow control characters like newlines inside strings
             try:
                 mentions = json.loads(text, strict=False)
-            except json.JSONDecodeError:
-                # Fallback: try to clean up some common issues
-                # Replace unescaped newlines inside strings (very basic attempt)
-                # This is risky but sometimes helps with large model outputs
-                cleaned_text = text.replace('\n', '\\n').replace('\r', '\\r')
-                # But we don't want to escape the actual structural newlines... 
-                # Better to just log the error and return empty for now, 
-                # or try a more sophisticated JSON repair if needed.
-                raise
+            except json.JSONDecodeError as e:
+                print(f"JSON parsing error: {e}")
+                # Log a snippet of the problematic text for debugging
+                print(f"Problematic text snippet: {text[:200]}...{text[-200:]}")
+                return []
             all_mentions = []
             
             if isinstance(mentions, list):

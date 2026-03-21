@@ -51,27 +51,41 @@ class BookVerifier:
                 )
             )
             
-            # Check if response has text
-            if not response.text:
+            # Check if response has text safely
+            try:
+                raw_text = response.text
+            except Exception as e:
+                print(f"Warning: Could not access response text: {e}")
+                return mention
+                
+            if not raw_text:
                 print(f"Warning: No text in response. Finish reason: {response.candidates[0].finish_reason if response.candidates else 'Unknown'}")
                 return mention
 
             # Clean response text for JSON parsing
-            text = response.text.strip()
-            # Remove markdown code blocks if present
-            if "```json" in text:
-                text = text.split("```json")[1].split("```")[0]
-            elif "```" in text:
-                text = text.split("```")[1].split("```")[0]
+            text = raw_text.strip()
+            
+            # Robust JSON object extraction using regex
+            import re
+            json_match = re.search(r'\{.*\}', text, re.DOTALL)
+            if json_match:
+                text = json_match.group(0)
+            else:
+                # Fallback to markdown block cleaning if regex fails
+                if "```json" in text:
+                    text = text.split("```json")[1].split("```")[0]
+                elif "```" in text:
+                    text = text.split("```")[1].split("```")[0]
+            
             text = text.strip()
 
             # Parse JSON response
             # Use strict=False to allow control characters like newlines inside strings
             try:
                 verification = json.loads(text, strict=False)
-            except json.JSONDecodeError:
-                # If parsing fails, return the original mention
-                raise
+            except json.JSONDecodeError as e:
+                print(f"JSON parsing error during verification: {e}")
+                return mention
             if isinstance(verification, dict):
                 # Update the mention with verification results
                 mention.update(verification)
