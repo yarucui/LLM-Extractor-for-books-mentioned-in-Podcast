@@ -10,14 +10,14 @@ class BookVerifier:
         self.client = genai.Client(api_key=api_key)
         self.model_name = model_name
         self.system_instruction = """You are a senior research auditor specializing in book metadata.
-        Your task is to verify and normalize book mentions.
+        Your task is to verify and normalize book mentions based on your internal knowledge.
 
-        For each mention, use your internal knowledge and the provided search tool to:
+        For each mention, confirm:
         1. is_book: Confirm if this is definitely a book (true/false).
         2. is_normalized_book_name: Confirm if the OFFICIAL FULL TITLE of the book correct (true/false).
         3. normalized_author_name: Confirm if the OFFICIAL FULL NAME of the author correct (true/false).
         4. isbn_verified: Confirm if the verified 13-digit ISBN correct (true/false).
-        5. verification_notes: Briefly explain any corrections made (e.g., "Normalized title from 'Lore' to 'The World of Lore'").
+        5. verification_notes: Briefly explain any corrections made.
 
         OUTPUT FORMAT:
         Return your findings as a JSON object with the following structure:
@@ -34,19 +34,15 @@ class BookVerifier:
         """
         Verifies and normalizes a single book mention.
         """
-        prompt = f"Verify and normalize this book mention. Use Google Search to find official metadata if needed. Return the result as a JSON object:\n\n{json.dumps(mention, indent=2)}"
+        prompt = f"Verify and normalize this book mention. Return the result as a JSON object:\n\n{json.dumps(mention, indent=2)}"
         
         try:
-            grounding_tool = types.Tool(
-                google_search=types.GoogleSearch()
-            )
-            
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=self.system_instruction,
-                    tools=[grounding_tool],
+                    response_mime_type="application/json",
                     max_output_tokens=2048
                 )
             )

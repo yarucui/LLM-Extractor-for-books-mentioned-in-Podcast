@@ -10,7 +10,7 @@ class BookExtractor:
         self.client = genai.Client(api_key=api_key)
         self.model_name = model_name
         self.system_instruction = """You are a precise research assistant specializing in podcast analysis.
-  Your task is to extract book mentions from podcast transcripts.
+  Your task is to extract and normalize book mentions from podcast transcripts.
 
   NORMALIZATION RULES:
   1. Always resolve nicknames, partial titles, or acronyms to the OFFICIAL FULL LIBRARY TITLE (e.g., 'Lore' -> 'The World of Lore').
@@ -22,7 +22,7 @@ class BookExtractor:
   2. author_name: The full name of the author.
   3. isbn: The 13-digit ISBN of the book (if identifiable). This helps ensure unique entity identification.
   4. context_quote: A substantial quote from the transcript providing context.
-  5. mention_type: The nature of the mention， must be one of:
+  5. mention_type: The nature of the mention, must be one of:
   ["critique", "reference", "recommendation", "author_interview", "self_promotion", "advertisement"].
   6. recommend_intensity: must be one of: ["critical", "negative", "neutral", "positive", "strong_recommendation"]
   7. author_present: Boolean (True if the author is a guest on the episode, False otherwise).
@@ -30,7 +30,6 @@ class BookExtractor:
 
   Return a JSON list of objects. If no books are mentioned, return an empty list [].
   Do not include podcasts, movies, or TV shows. Only books.
-  IMPORTANT: Your response must be a valid JSON string and nothing else. Do not include markdown formatting like ```json.
   """
 
     def extract_mentions_batch(self, episodes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

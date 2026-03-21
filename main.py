@@ -19,7 +19,7 @@ def main():
     parser.add_argument("--db_file", default=os.getenv("DB_FILE", "book_mentions_research.db"), help="Output SQLite database file")
     parser.add_argument("--model", default=os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite"), help="Gemini model to use")
     parser.add_argument("--api_key", default=os.getenv("GEMINI_API_KEY"), help="Gemini API key")
-    parser.add_argument("--batch_size", type=int, default=10, help="Number of episodes per batch")
+    parser.add_argument("--batch_size", type=int, default=5, help="Number of episodes per batch")
     parser.add_argument("--rate_limit_delay", type=int, default=10, help="Seconds to wait between batches to avoid rate limits")
     
     args = parser.parse_args()
