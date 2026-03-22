@@ -16,8 +16,7 @@ class BookVerifier:
         1. is_book: Confirm if this is definitely a book (true/false).
         2. is_normalized_book_name: Confirm if the OFFICIAL FULL TITLE of the book correct (true/false).
         3. normalized_author_name: Confirm if the OFFICIAL FULL NAME of the author correct (true/false).
-        4. isbn_verified: Confirm if the verified 13-digit ISBN correct (true/false).
-        5. verification_notes: Briefly explain any corrections made.
+        4. verification_notes: Briefly explain any corrections made.
 
         OUTPUT FORMAT:
         Return your findings as a JSON object with the following structure:
@@ -25,7 +24,6 @@ class BookVerifier:
         "is_book": boolean,
         "is_normalized_book_name": boolean,
         "normalized_author_name": boolean,
-        "isbn_verified": boolean,
         "verification_notes": string
         }
         """
