@@ -10,7 +10,7 @@ class BookVerifier:
         self.client = genai.Client(api_key=api_key)
         self.model_name = model_name
         self.system_instruction = """You are a senior research auditor specializing in book metadata.
-        Your task is to verify and normalize book mentions using your internal knowledge and the provided search tool.
+        Your task is to verify and normalize book mentions based on your internal knowledge.
 
         For each mention, confirm:
         1. is_book: Confirm if this is definitely a book (true/false).
@@ -20,8 +20,7 @@ class BookVerifier:
         5. verification_notes: Briefly explain any corrections made.
 
         OUTPUT FORMAT:
-        You MUST return your findings as a JSON object at the end of your response.
-        The JSON object MUST have this structure:
+        Return your findings as a JSON object with the following structure:
         {
         "is_book": boolean,
         "is_normalized_book_name": boolean,
@@ -35,19 +34,15 @@ class BookVerifier:
         """
         Verifies and normalizes a single book mention.
         """
-        prompt = f"Verify and normalize this book mention using Google Search. Return the result as a JSON object at the end of your response:\n\n{json.dumps(mention, indent=2)}"
+        prompt = f"Verify and normalize this book mention. Return the result as a JSON object:\n\n{json.dumps(mention, indent=2)}"
         
         try:
-            grounding_tool = types.Tool(
-                google_search=types.GoogleSearch()
-            )
-            
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=self.system_instruction,
-                    tools=[grounding_tool],
+                    response_mime_type="application/json",
                     max_output_tokens=2048
                 )
             )
@@ -57,10 +52,9 @@ class BookVerifier:
                 raw_text = response.text if response.text else ""
                 
                 if not raw_text:
-                    # Check for parts if text is missing (might be tool calls only)
+                    # Check for parts if text is missing
                     parts = response.candidates[0].content.parts if response.candidates else []
-                    has_tool_calls = any(part.tool_call for part in parts) if parts else False
-                    print(f"Warning: No text in response. Finish reason: {response.candidates[0].finish_reason if response.candidates else 'Unknown'}. Has tool calls: {has_tool_calls}")
+                    print(f"Warning: No text in response. Finish reason: {response.candidates[0].finish_reason if response.candidates else 'Unknown'}")
                     return mention
             except Exception as e:
                 print(f"Warning: Could not access response text: {e}")
@@ -69,39 +63,32 @@ class BookVerifier:
             # Clean response text for JSON parsing
             text = raw_text.strip()
             
-            # Robust JSON object extraction using regex
-            import re
-            # Look for the last JSON object in the text (in case there are citations/text before it)
-            json_matches = list(re.finditer(r'\{.*\}', text, re.DOTALL))
-            if json_matches:
-                # Take the last match as it's most likely the final JSON object
-                json_text = json_matches[-1].group(0)
-            else:
-                # Fallback to markdown block cleaning
+            # If the model still outputs markdown blocks despite strict mode (rare but possible)
+            if text.startswith("```"):
                 if "```json" in text:
-                    json_text = text.split("```json")[-1].split("```")[0]
-                elif "```" in text:
-                    json_text = text.split("```")[-1].split("```")[0]
+                    text = text.split("```json")[-1].split("```")[0]
                 else:
-                    json_text = text
+                    text = text.split("```")[-1].split("```")[0]
             
-            json_text = json_text.strip()
+            text = text.strip()
 
             # Parse JSON response
             try:
-                verification = json.loads(json_text, strict=False)
+                verification = json.loads(text, strict=False)
             except json.JSONDecodeError as e:
-                # One last attempt: try to find anything that looks like a JSON object
-                match = re.search(r'\{.*\}', json_text, re.DOTALL)
-                if match:
+                # Fallback: try regex if direct parsing fails
+                import re
+                json_match = re.search(r'\{.*\}', text, re.DOTALL)
+                if json_match:
                     try:
-                        verification = json.loads(match.group(0), strict=False)
+                        verification = json.loads(json_match.group(0), strict=False)
                     except:
-                        print(f"JSON parsing error during verification: {e}")
-                        print(f"Problematic text snippet: {json_text[:100]}...{json_text[-100:]}")
+                        print(f"JSON parsing error during verification (even with regex): {e}")
+                        print(f"Problematic text snippet: {text[:100]}...{text[-100:]}")
                         return mention
                 else:
                     print(f"JSON parsing error during verification: {e}")
+                    print(f"Problematic text snippet: {text[:100]}...{text[-100:]}")
                     return mention
             
             if isinstance(verification, dict):
