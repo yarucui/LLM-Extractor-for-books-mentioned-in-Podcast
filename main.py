@@ -20,7 +20,7 @@ def main():
     parser.add_argument("--model", default=os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview"), help="Gemini model to use")
     parser.add_argument("--api_key", default=os.getenv("GEMINI_API_KEY"), help="Gemini API key")
     parser.add_argument("--batch_size", type=int, default=5, help="Number of episodes per batch")
-    parser.add_argument("--rate_limit_delay", type=int, default=10, help="Seconds to wait between batches to avoid rate limits")
+    parser.add_argument("--rate_limit_delay", type=int, default=15, help="Seconds to wait between batches to avoid rate limits")
     
     args = parser.parse_args()
     
@@ -64,6 +64,7 @@ def main():
             print(f"\nProcessing batch {i//args.batch_size + 1} ({len(batch)} episodes)...")
             
             # 1. Extraction (Batch)
+            # extractor now handles retries internally
             mentions = extractor.extract_mentions_batch(batch)
             
             if mentions:
@@ -74,13 +75,14 @@ def main():
                 try:
                     for m in tqdm(mentions, desc="Verifying Mentions", leave=False):
                         try:
+                            # verifier now handles retries internally
                             verified_m = verifier.verify_mention(m)
                             verified_mentions.append(verified_m)
                         except Exception as ve:
                             print(f"Error verifying mention: {ve}")
                             verified_mentions.append(m)
-                        # Small delay between verifications if needed, but verifier is also subject to RPM
-                        time.sleep(1) 
+                        # Small delay between verifications to respect RPM
+                        time.sleep(2) 
                 except KeyboardInterrupt:
                     print("\nVerification interrupted by user. Saving progress so far...")
                     # Continue to storage with what we have
@@ -89,8 +91,10 @@ def main():
                 if verified_mentions:
                     storage.save_to_csv(verified_mentions)
                     storage.save_to_db(verified_mentions)
-            else:
-                print("No book mentions found in this batch.")
+            elif mentions == []:
+                # This could be either no mentions found OR extraction failed after retries
+                # The extractor prints its own error messages, so we just continue
+                pass
             
             # Rate limiting delay between batches
             if i + args.batch_size < len(pending_episodes):
