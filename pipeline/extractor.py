@@ -6,27 +6,21 @@ from google.genai import types
 from .utils import count_words
 
 class BookExtractor:
-    def __init__(self, api_key: str, model_name: str = "gemini-2.5-flash-lite"):
+    def __init__(self, api_key: str, model_name: str = "gemini-3.1-flash-lite-preview"):
         self.client = genai.Client(api_key=api_key)
         self.model_name = model_name
         self.system_instruction = """You are a precise research assistant specializing in podcast analysis.
-  Your task is to extract and normalize book mentions from podcast transcripts.
-
-  NORMALIZATION RULES:
-  1. Always resolve nicknames, partial titles, or acronyms to the OFFICIAL FULL LIBRARY TITLE (e.g., 'Lore' -> 'The World of Lore').
-  2. Use your internal knowledge and the provided search tool to identify the correct book entity.
-  3. If multiple books have similar names, use the context to determine the most likely one.
+  Your task is to extract book mentions from podcast transcripts.
 
   For each book mention, extract:
-  1. book_name: The OFFICIAL FULL TITLE of the book.
-  2. author_name: The full name of the author.
-  3. isbn: The 13-digit ISBN of the book (if identifiable). This helps ensure unique entity identification.
-  4. context_quote: A substantial quote from the transcript providing context.
-  5. mention_type: The nature of the mention, must be one of:
+  1. book_name: The title as mentioned in the podcast.
+  2. author_name: The author as mentioned (or null if not mentioned).
+  3. context_quote: A substantial quote from the transcript providing context.
+  4. mention_type: The nature of the mention, must be one of:
   ["critique", "reference", "recommendation", "author_interview", "self_promotion", "advertisement"].
-  6. recommend_intensity: must be one of: ["critical", "negative", "neutral", "positive", "strong_recommendation"]
-  7. author_present: Boolean (True if the author is a guest on the episode, False otherwise).
-  8. episode_id: The ID of the episode where the mention occurred.
+  5. recommend_intensity: must be one of: ["critical", "negative", "neutral", "positive", "strong_recommendation"]
+  6. author_present: Boolean (True if the author is a guest on the episode, False otherwise).
+  7. episode_id: The ID of the episode where the mention occurred.
 
   Return a JSON list of objects. If no books are mentioned, return an empty list [].
   Do not include podcasts, movies, or TV shows. Only books.
@@ -36,7 +30,7 @@ class BookExtractor:
         """
         Extracts book mentions from a batch of episodes.
         """
-        combined_prompt = "Extract and normalize book mentions from the following podcast episodes. Use Google Search to verify titles and authors. Return the results as a JSON list:\n\n"
+        combined_prompt = "Extract all book mentions from the following podcast episodes. Return the results as a JSON list:\n\n"
         for ep in episodes:
             combined_prompt += f"--- EPISODE START ---\n"
             combined_prompt += f"Episode ID: {ep['episode_id']}\n"
@@ -45,16 +39,12 @@ class BookExtractor:
             combined_prompt += f"--- EPISODE END ---\n\n"
 
         try:
-            grounding_tool = types.Tool(
-                google_search=types.GoogleSearch()
-            )
-            
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=combined_prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=self.system_instruction,
-                    tools=[grounding_tool],
+                    response_mime_type="application/json",
                     max_output_tokens=8192
                 )
             )
@@ -73,16 +63,11 @@ class BookExtractor:
             # Clean response text for JSON parsing
             text = raw_text.strip()
             
-            # Robust JSON array extraction using regex
-            import re
-            json_match = re.search(r'\[\s*\{.*\}\s*\]', text, re.DOTALL)
-            if json_match:
-                text = json_match.group(0)
-            else:
-                # Fallback to markdown block cleaning if regex fails
+            # If the model still outputs markdown blocks despite strict mode (rare but possible)
+            if text.startswith("```"):
                 if "```json" in text:
                     text = text.split("```json")[1].split("```")[0]
-                elif "```" in text:
+                else:
                     text = text.split("```")[1].split("```")[0]
             
             text = text.strip()
@@ -92,10 +77,20 @@ class BookExtractor:
             try:
                 mentions = json.loads(text, strict=False)
             except json.JSONDecodeError as e:
-                print(f"JSON parsing error: {e}")
-                # Log a snippet of the problematic text for debugging
-                print(f"Problematic text snippet: {text[:200]}...{text[-200:]}")
-                return []
+                # Fallback: try regex if direct parsing fails
+                import re
+                json_match = re.search(r'\[\s*\{.*\}\s*\]', text, re.DOTALL)
+                if json_match:
+                    try:
+                        mentions = json.loads(json_match.group(0), strict=False)
+                    except:
+                        print(f"JSON parsing error (even with regex): {e}")
+                        print(f"Problematic text snippet: {text[:200]}...{text[-200:]}")
+                        return []
+                else:
+                    print(f"JSON parsing error: {e}")
+                    print(f"Problematic text snippet: {text[:200]}...{text[-200:]}")
+                    return []
             all_mentions = []
             
             if isinstance(mentions, list):
