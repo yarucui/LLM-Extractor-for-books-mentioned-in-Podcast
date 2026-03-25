@@ -13,7 +13,8 @@ class BookAnalysis(BaseModel):
     mention_type: str = Field(description="Nature of mention: ['critique', 'reference', 'recommendation', 'author_interview', 'self_promotion', 'advertisement'].")
     recommend_intensity: str = Field(description="Intensity: ['critical', 'negative', 'neutral', 'positive', 'strong_recommendation'].")
     author_present: bool = Field(description="True if the author is a guest.")
-    goodreads_url: Optional[str] = Field(description="The official Goodreads URL for this book. Use web search to find it.")
+    search_query_used: str = Field(description="The specific search query you used to find the Goodreads URL.")
+    goodreads_url: Optional[str] = Field(description="The official Goodreads URL for this book (e.g., https://www.goodreads.com/book/show/...). You MUST use web search to find the exact URL.")
 
 class BookContextBlock(BaseModel):
     context_quote: str = Field(description="A long, continuous segment from the transcript where a book or its content is being discussed. Include enough surrounding dialogue to capture the full essence of the discussion, even if the book title isn't explicitly repeated in every sentence.")
@@ -25,9 +26,17 @@ class BookMentionsResponse(BaseModel):
 
 class BookExtractor:
     def __init__(self, api_key: str, model_name: str = "google/gemini-3.1-pro-preview"):
+        # Clean API key (remove quotes and whitespace)
+        api_key = api_key.strip().strip('"').strip("'") if api_key else ""
+        
         self.client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key,
+            default_headers={
+                "Authorization": f"Bearer {api_key}",
+                "HTTP-Referer": os.getenv("APP_URL", "https://ai.studio/build"),
+                "X-OpenRouter-Title": "Podcast Book Context Extractor",
+            }
         )
         # Append :online to enable web search if not already present
         if not model_name.endswith(":online"):
@@ -39,14 +48,16 @@ class BookExtractor:
   
   STRATEGY: CONTEXT-FIRST EXTRACTION
   1. IDENTIFY: Find all segments in the transcript where a book, its themes, or its content are being discussed.
-  2. EXTRACT CONTEXT: Capture the entire discussion block (Context Quote). This should be a long segment, including host/guest interactions. Even if they stop saying the book name and use pronouns like "it" or "the author", keep the context together.
-  3. ANALYZE: For each Context Quote, identify the specific book(s) being discussed.
-  4. SEARCH: Use web search to find the official Goodreads URL for each identified book.
+  2. EXTRACT CONTEXT: Capture the entire discussion block (Context Quote). This should be a long segment, including host/guest interactions.
+  3. ANALYZE: For each Context Quote, identify the specific book(s) and author(s).
+  4. SEARCH & GROUND: For every book identified, you MUST perform a web search to find its official Goodreads URL. 
+     - Example URL format: https://www.goodreads.com/book/show/31045623-exhume
+     - Do not guess. If you cannot find it after searching, leave it null, but prioritize finding it.
   
   RULES:
   - Focus on books only. Exclude other media.
   - Context Quote is your primary unit. It must be substantial.
-  - If multiple books are discussed in one continuous segment, group them under one block.
+  - You have access to web search via the ':online' model suffix. Use it to verify book titles and find URLs.
   """
 
     def extract_mentions_batch(self, episodes: List[Dict[str, Any]], max_retries: int = 5) -> List[Dict[str, Any]]:
@@ -65,10 +76,6 @@ class BookExtractor:
         while retries < max_retries:
             try:
                 response = self.client.chat.completions.create(
-                    extra_headers={
-                        "HTTP-Referer": os.getenv("APP_URL", "https://ai.studio/build"),
-                        "X-OpenRouter-Title": "Podcast Book Context Extractor",
-                    },
                     model=self.model_name,
                     messages=[
                         {"role": "system", "content": self.system_instruction},

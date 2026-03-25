@@ -28,6 +28,11 @@ def main():
         print("Error: GEMINI_API_KEY not found. Please set it in your .env file or pass it as an argument.")
         return
 
+    # Diagnostic print (masked)
+    masked_key = f"{args.api_key[:6]}...{args.api_key[-4:]}" if len(args.api_key) > 10 else "***"
+    print(f"Using model: {args.model}")
+    print(f"API Key detected: {masked_key}")
+
     # Initialize components
     loader = PodcastLoader(args.raw_text_dir)
     extractor = BookExtractor(args.api_key, args.model)
