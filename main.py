@@ -17,8 +17,8 @@ def main():
     parser.add_argument("--raw_text_dir", default=os.getenv("RAW_TEXT_DIR", "raw_text"), help="Directory containing raw JSON files")
     parser.add_argument("--output_file", default=os.getenv("OUTPUT_FILE", "book_mentions_research.csv"), help="Output CSV file")
     parser.add_argument("--db_file", default=os.getenv("DB_FILE", "book_mentions_research.db"), help="Output SQLite database file")
-    parser.add_argument("--model", default=os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview"), help="Gemini model to use")
-    parser.add_argument("--api_key", default=os.getenv("GEMINI_API_KEY"), help="Gemini API key")
+    parser.add_argument("--model", default=os.getenv("GEMINI_MODEL", "google/gemini-2.0-flash-001"), help="OpenRouter model to use")
+    parser.add_argument("--api_key", default=os.getenv("GEMINI_API_KEY"), help="OpenRouter API key")
     parser.add_argument("--batch_size", type=int, default=5, help="Number of episodes per batch")
     parser.add_argument("--rate_limit_delay", type=int, default=15, help="Seconds to wait between batches to avoid rate limits")
     

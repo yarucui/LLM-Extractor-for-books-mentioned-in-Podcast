@@ -3,31 +3,26 @@ import json
 import time
 import re
 from typing import List, Dict, Any
-from google import genai
-from google.genai import types
+from pydantic import BaseModel, Field
+from openai import OpenAI
 from .utils import count_words
 
+class VerificationResult(BaseModel):
+    is_book: bool = Field(description="Confirm if this is definitely a book (true/false).")
+    is_normalized_book_name: bool = Field(description="Confirm if the OFFICIAL FULL TITLE of the book correct (true/false).")
+    normalized_author_name: bool = Field(description="Confirm if the OFFICIAL FULL NAME of the author correct (true/false).")
+    is_goodreads_url_correct: bool = Field(description="Confirm if the provided Goodreads URL is correct and points to the right book (true/false).")
+    verification_notes: str = Field(description="Briefly explain any corrections made.")
+
 class BookVerifier:
-    def __init__(self, api_key: str, model_name: str = "gemini-3.1-flash-lite-preview"):
-        self.client = genai.Client(api_key=api_key)
+    def __init__(self, api_key: str, model_name: str = "google/gemini-2.0-flash-001"):
+        self.client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+        )
         self.model_name = model_name
         self.system_instruction = """You are a senior research auditor specializing in book metadata.
         Your task is to verify and normalize book mentions based on your internal knowledge.
-
-        For each mention, confirm:
-        1. is_book: Confirm if this is definitely a book (true/false).
-        2. is_normalized_book_name: Confirm if the OFFICIAL FULL TITLE of the book correct (true/false).
-        3. normalized_author_name: Confirm if the OFFICIAL FULL NAME of the author correct (true/false).
-        4. verification_notes: Briefly explain any corrections made.
-
-        OUTPUT FORMAT:
-        Return your findings as a JSON object with the following structure:
-        {
-        "is_book": boolean,
-        "is_normalized_book_name": boolean,
-        "normalized_author_name": boolean,
-        "verification_notes": string
-        }
         """
 
     def verify_mention(self, mention: Dict[str, Any], max_retries: int = 5) -> Dict[str, Any]:
@@ -39,27 +34,30 @@ class BookVerifier:
         retries = 0
         while retries < max_retries:
             try:
-                response = self.client.models.generate_content(
+                # OpenRouter Structured Output format
+                response = self.client.chat.completions.create(
+                    extra_headers={
+                        "HTTP-Referer": os.getenv("APP_URL", "https://ai.studio/build"),
+                        "X-OpenRouter-Title": "Podcast Book Verifier",
+                    },
                     model=self.model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=self.system_instruction,
-                        response_mime_type="application/json",
-                        max_output_tokens=2048
-                    )
+                    messages=[
+                        {"role": "system", "content": self.system_instruction},
+                        {"role": "user", "content": prompt}
+                    ],
+                    response_format={
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "verification_result",
+                            "strict": True,
+                            "schema": VerificationResult.model_json_schema()
+                        }
+                    }
                 )
                 
-                # Check if response has text safely
-                try:
-                    raw_text = response.text if response.text else ""
-                    
-                    if not raw_text:
-                        # Check for parts if text is missing
-                        parts = response.candidates[0].content.parts if response.candidates else []
-                        print(f"Warning: No text in response. Finish reason: {response.candidates[0].finish_reason if response.candidates else 'Unknown'}")
-                        return mention
-                except Exception as e:
-                    print(f"Warning: Could not access response text: {e}")
+                raw_text = response.choices[0].message.content
+                if not raw_text:
+                    print(f"Warning: No content in response.")
                     return mention
 
                 # Clean response text for JSON parsing
@@ -101,8 +99,8 @@ class BookVerifier:
                 
                 return mention
             except Exception as e:
-                error_str = str(e)
-                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                error_str = str(e).lower()
+                if "429" in error_str or "rate limit" in error_str or "too many requests" in error_str:
                     retries += 1
                     wait_time = 60 # Default wait time
                     

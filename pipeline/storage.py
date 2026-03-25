@@ -11,13 +11,16 @@ class BookStorage:
     def save_to_csv(self, mentions: List[Dict[str, Any]]):
         """
         Saves a list of book mentions to a CSV file.
-        Appends to the file if it already exists.
+        Appends to the file if it already exists, handling new columns.
         """
-        df = pd.DataFrame(mentions)
+        df_new = pd.DataFrame(mentions)
         if not os.path.exists(self.output_file):
-            df.to_csv(self.output_file, index=False)
+            df_new.to_csv(self.output_file, index=False)
         else:
-            df.to_csv(self.output_file, mode='a', header=False, index=False)
+            df_old = pd.read_csv(self.output_file)
+            # Combine old and new, ensuring all columns are present
+            df_combined = pd.concat([df_old, df_new], ignore_index=True)
+            df_combined.to_csv(self.output_file, index=False)
         print(f"Saved {len(mentions)} mentions to {self.output_file}")
 
     def save_to_db(self, mentions: List[Dict[str, Any]]):

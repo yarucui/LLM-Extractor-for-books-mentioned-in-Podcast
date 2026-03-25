@@ -1,5 +1,6 @@
-google-genai
+openai
 python-dotenv
 tqdm
 pandas
 tiktoken
+pydantic
