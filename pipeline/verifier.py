@@ -9,10 +9,10 @@ from .utils import count_words
 
 class VerificationResult(BaseModel):
     is_book: bool = Field(description="Confirm if this is definitely a book (true/false).")
-    is_normalized_book_name: bool = Field(description="Confirm if the OFFICIAL FULL TITLE of the book correct (true/false).")
-    normalized_author_name: bool = Field(description="Confirm if the OFFICIAL FULL NAME of the author correct (true/false).")
-    is_goodreads_url_correct: bool = Field(description="Confirm if the provided Goodreads URL is correct and points to the right book (true/false).")
-    verification_notes: str = Field(description="Briefly explain any corrections made.")
+    book_name: str = Field(description="The OFFICIAL FULL TITLE of the book. If the input was incomplete, provide the corrected full title here.")
+    author_name: Optional[str] = Field(description="The OFFICIAL FULL NAME of the author. If the input was incorrect, provide the corrected name here.")
+    goodreads_url: Optional[str] = Field(description="The OFFICIAL Goodreads URL. If the input was missing or incorrect, provide the corrected URL here.")
+    verification_notes: str = Field(description="Set to 'all good' if the input was already perfect. Otherwise, briefly explain what you corrected.")
 
 class BookVerifier:
     def __init__(self, api_key: str, model_name: str = "google/gemini-3.1-pro-preview"):
@@ -36,8 +36,14 @@ class BookVerifier:
             
         self.system_instruction = """You are a senior research auditor specializing in book metadata.
         Your task is to verify and normalize book mentions.
-        You MUST use web search to verify the book's official title, author, and especially the Goodreads URL.
-        If the Goodreads URL is missing or incorrect, you MUST find the correct one.
+        
+        1. VERIFY: Use web search to verify the book's OFFICIAL FULL TITLE, author, and Goodreads URL.
+        2. CORRECT: If any information (title, author, URL) is incomplete or incorrect, you MUST provide the corrected version in the respective fields.
+        3. NOTES: 
+           - If the input was already 100% correct, set verification_notes to 'all good'.
+           - If you made changes, explain them briefly in verification_notes.
+        
+        Search Strategy: For Goodreads URLs, use 'short book name + author name' for better matching.
         """
 
     def verify_mention(self, mention: Dict[str, Any], max_retries: int = 5) -> Dict[str, Any]:

@@ -8,13 +8,13 @@ from openai import OpenAI
 from .utils import count_words
 
 class BookAnalysis(BaseModel):
-    book_name: str = Field(description="The official full title of the book.")
+    book_name: str = Field(description="The OFFICIAL FULL TITLE of the book, including subtitles (e.g., 'Exhumed: Unearthing the History of the American Vampire'). Use web search to verify the complete title.")
     author_name: Optional[str] = Field(description="The full name of the author.")
     mention_type: str = Field(description="Nature of mention: ['critique', 'reference', 'recommendation', 'author_interview', 'self_promotion', 'advertisement'].")
     recommend_intensity: str = Field(description="Intensity: ['critical', 'negative', 'neutral', 'positive', 'strong_recommendation'].")
     author_present: bool = Field(description="True if the author is a guest.")
-    search_query_used: str = Field(description="The specific search query you used to find the Goodreads URL.")
-    goodreads_url: Optional[str] = Field(description="The official Goodreads URL for this book (e.g., https://www.goodreads.com/book/show/...). You MUST use web search to find the exact URL.")
+    search_query_used: str = Field(description="The specific search query you used to find the Goodreads URL. Strategy: Use 'short book name + author name' for best matching.")
+    goodreads_url: Optional[str] = Field(description="The official Goodreads URL for this book (e.g., https://www.goodreads.com/book/show/...). Use web search to find the exact URL.")
 
 class BookContextBlock(BaseModel):
     context_quote: str = Field(description="A long, continuous segment from the transcript where a book or its content is being discussed. Include enough surrounding dialogue to capture the full essence of the discussion, even if the book title isn't explicitly repeated in every sentence.")
