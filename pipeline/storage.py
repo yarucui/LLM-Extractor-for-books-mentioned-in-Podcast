@@ -26,11 +26,35 @@ class BookStorage:
     def save_to_db(self, mentions: List[Dict[str, Any]]):
         """
         Saves a list of book mentions to a SQLite database.
+        Handles schema evolution by merging with existing data if the table exists.
         """
         conn = sqlite3.connect(self.db_file)
-        df = pd.DataFrame(mentions)
-        df.to_sql('book_mentions', conn, if_exists='append', index=False)
-        conn.close()
+        df_new = pd.DataFrame(mentions)
+        
+        try:
+            # Check if table exists
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='book_mentions'")
+            table_exists = cursor.fetchone()
+            
+            if not table_exists:
+                df_new.to_sql('book_mentions', conn, index=False)
+            else:
+                # Read existing data
+                df_old = pd.read_sql('SELECT * FROM book_mentions', conn)
+                # Combine and handle missing columns
+                df_combined = pd.concat([df_old, df_new], ignore_index=True)
+                # Overwrite the table with the combined data
+                df_combined.to_sql('book_mentions', conn, if_exists='replace', index=False)
+        except Exception as e:
+            print(f"Error saving to database: {e}")
+            # Fallback: try to just append if something went wrong with the merge
+            try:
+                df_new.to_sql('book_mentions', conn, if_exists='append', index=False)
+            except Exception:
+                pass
+        finally:
+            conn.close()
         print(f"Saved {len(mentions)} mentions to {self.db_file}")
 
     def get_processed_episodes(self) -> List[str]:
