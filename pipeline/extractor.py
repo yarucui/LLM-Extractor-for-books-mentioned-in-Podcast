@@ -24,7 +24,7 @@ class BookMentionsResponse(BaseModel):
     blocks: List[BookContextBlock]
 
 class BookExtractor:
-    def __init__(self, api_key: str, model_name: str = "google/gemini-2.0-flash-001"):
+    def __init__(self, api_key: str, model_name: str = "google/gemini-3.1-pro-preview"):
         self.client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key,
