@@ -2,7 +2,7 @@ import os
 import json
 import time
 import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from openai import OpenAI
 from .utils import count_words
