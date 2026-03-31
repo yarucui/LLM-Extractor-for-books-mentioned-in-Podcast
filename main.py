@@ -94,8 +94,21 @@ def main():
                 
                 # 3. Storage
                 if verified_mentions:
-                    storage.save_to_csv(verified_mentions)
-                    storage.save_to_db(verified_mentions)
+                    # Apply formatting: only include context_quote for the first mention in a block
+                    formatted_mentions = []
+                    last_quote = None
+                    for m in verified_mentions:
+                        m_copy = m.copy()
+                        current_quote = m_copy.get('context_quote')
+                        if current_quote and current_quote == last_quote:
+                            m_copy['context_quote'] = ""
+                            m_copy['word_count'] = 0
+                        else:
+                            last_quote = current_quote
+                        formatted_mentions.append(m_copy)
+                    
+                    storage.save_to_csv(formatted_mentions)
+                    storage.save_to_db(formatted_mentions)
             elif mentions == []:
                 # This could be either no mentions found OR extraction failed after retries
                 # The extractor prints its own error messages, so we just continue

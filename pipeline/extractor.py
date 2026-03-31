@@ -17,7 +17,7 @@ class BookAnalysis(BaseModel):
     goodreads_url: Optional[str] = Field(description="The official Goodreads URL for this book (e.g., https://www.goodreads.com/book/show/...). Use web search to find the exact URL.")
 
 class BookContextBlock(BaseModel):
-    context_quote: str = Field(description="A long, continuous segment from the transcript where a book or its content is being discussed. Include enough surrounding dialogue to capture the full essence of the discussion, even if the book title isn't explicitly repeated in every sentence.")
+    context_quote: str = Field(description="A comprehensive, continuous segment from the transcript covering the entire discussion of a book or books. It MUST start from the first mention and include all subsequent dialogue, host/guest interactions, and any reflections or thoughts triggered by the book, until the topic fully shifts.")
     books: List[BookAnalysis] = Field(description="List of books identified and analyzed within this specific context quote.")
     episode_id: str = Field(description="The ID of the episode.")
 
@@ -47,8 +47,9 @@ class BookExtractor:
         self.system_instruction = """You are a senior research analyst specializing in literary discussions in podcasts.
   
   STRATEGY: CONTEXT-FIRST EXTRACTION
-  1. IDENTIFY: Find all segments in the transcript where a book, its themes, or its content are being discussed.
-  2. EXTRACT CONTEXT: Capture the entire discussion block (Context Quote). This should be a long segment, including host/guest interactions.
+  1. IDENTIFY: Find all segments in the transcript where a book, its themes, or its content are being discussed. 
+     - CRITICAL: The segment MUST start from the very first mention of the book and continue until the entire discussion about that book (or books) and any reflections/thoughts triggered by it have concluded.
+  2. EXTRACT CONTEXT: Capture the entire discussion block (Context Quote). This should be a long, continuous segment, including host/guest interactions and any philosophical or practical reflections sparked by the book.
   3. ANALYZE: For each Context Quote, identify the specific book(s) and author(s).
   4. SEARCH & GROUND: For every book identified, you MUST perform a web search to find its official Goodreads URL. 
      - Example URL format: https://www.goodreads.com/book/show/31045623-exhume
@@ -56,7 +57,7 @@ class BookExtractor:
   
   RULES:
   - Focus on books only. Exclude other media.
-  - Context Quote is your primary unit. It must be substantial.
+  - Context Quote is your primary unit. It must be comprehensive and cover the full scope of the conversation related to the book.
   - You have access to web search via the ':online' model suffix. Use it to verify book titles and find URLs.
   """
 
