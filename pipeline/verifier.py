@@ -77,34 +77,32 @@ class BookVerifier:
                     print(f"Warning: No content in response.")
                     return mention
 
-                # Clean response text for JSON parsing
+                # Robust JSON extraction
                 text = raw_text.strip()
                 
-                # If the model still outputs markdown blocks despite strict mode (rare but possible)
-                if text.startswith("```"):
-                    if "```json" in text:
-                        text = text.split("```json")[-1].split("```")[0]
-                    else:
-                        text = text.split("```")[-1].split("```")[0]
+                # Try to find JSON in markdown blocks first
+                if "```" in text:
+                    matches = re.findall(r'```(?:json)?\s*(.*?)\s*```', text, re.DOTALL)
+                    if matches:
+                        text = matches[-1] # Take the last block
                 
                 text = text.strip()
 
                 # Parse JSON response
                 try:
                     verification = json.loads(text, strict=False)
-                except json.JSONDecodeError as e:
-                    # Fallback: try regex if direct parsing fails
-                    json_match = re.search(r'\{.*\}', text, re.DOTALL)
-                    if json_match:
+                except json.JSONDecodeError:
+                    # Fallback: find the last balanced JSON object
+                    json_matches = list(re.finditer(r'\{.*\}', text, re.DOTALL))
+                    if json_matches:
                         try:
-                            verification = json.loads(json_match.group(0), strict=False)
-                        except:
+                            verification = json.loads(json_matches[-1].group(0), strict=False)
+                        except Exception as e:
                             print(f"JSON parsing error during verification (even with regex): {e}")
                             print(f"Problematic text snippet: {text[:100]}...{text[-100:]}")
                             return mention
                     else:
-                        print(f"JSON parsing error during verification: {e}")
-                        print(f"Problematic text snippet: {text[:100]}...{text[-100:]}")
+                        print(f"No JSON object found in response.")
                         return mention
                 
                 if isinstance(verification, dict):

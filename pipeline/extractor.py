@@ -101,7 +101,33 @@ class BookExtractor:
                 if not raw_text:
                     return []
 
-                data = json.loads(raw_text, strict=False)
+                # Robust JSON extraction
+                text = raw_text.strip()
+                
+                # Try to find JSON in markdown blocks first
+                if "```" in text:
+                    matches = re.findall(r'```(?:json)?\s*(.*?)\s*```', text, re.DOTALL)
+                    if matches:
+                        text = matches[-1] # Take the last block
+                
+                text = text.strip()
+                
+                try:
+                    data = json.loads(text, strict=False)
+                except json.JSONDecodeError:
+                    # Fallback: find the last balanced JSON object
+                    # We use a simpler regex for finding the last { ... } block
+                    json_matches = list(re.finditer(r'\{.*\}', text, re.DOTALL))
+                    if json_matches:
+                        try:
+                            data = json.loads(json_matches[-1].group(0), strict=False)
+                        except:
+                            print(f"Failed to parse JSON even with regex fallback.")
+                            return []
+                    else:
+                        print(f"No JSON object found in response.")
+                        return []
+
                 ep_summaries = data.get("episodes", [])
                 
                 all_flattened_results = []
