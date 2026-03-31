@@ -8,6 +8,28 @@ class BookStorage:
         self.output_file = output_file
         self.db_file = db_file
 
+    def save_to_json(self, mentions: List[Dict[str, Any]]):
+        """
+        Saves a list of book mentions to a JSON file.
+        Appends to the file if it already exists.
+        """
+        json_file = self.output_file.replace('.csv', '.json')
+        
+        existing_data = []
+        if os.path.exists(json_file):
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    existing_data = json.load(f)
+            except Exception:
+                existing_data = []
+        
+        # Combine and save
+        combined_data = existing_data + mentions
+        with open(json_file, 'w', encoding='utf-8') as f:
+            json.dump(combined_data, f, indent=2, ensure_ascii=False)
+        
+        print(f"Saved {len(mentions)} mentions to {json_file}")
+
     def save_to_csv(self, mentions: List[Dict[str, Any]]):
         """
         Saves a list of book mentions to a CSV file.

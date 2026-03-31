@@ -17,12 +17,13 @@ class BookAnalysis(BaseModel):
     goodreads_url: Optional[str] = Field(description="The official Goodreads URL for this book.")
 
 class BookMention(BaseModel):
-    book_mention_quote: str = Field(description="A specific segment from the episode_quote where this particular book is discussed. Capture the immediate context of the mention.")
+    book_mention_quote: str = Field(description="A specific, unedited segment from the episode_quote where this particular book is discussed. Capture the immediate context exactly as it appears in the transcript.")
     analysis: BookAnalysis
 
 class EpisodeBookSummary(BaseModel):
     episode_id: str = Field(description="The ID of the episode.")
-    episode_quote: str = Field(description="The continuous segment of the transcript starting from the very first book mention in the episode until the very last book mention and its related discussion concludes. If no books are mentioned, leave empty.")
+    episode_quote_start: str = Field(description="A unique 15-20 word snippet from the transcript where the book discussion starts.")
+    episode_quote_end: str = Field(description="A unique 15-20 word snippet from the transcript where the book discussion and related reflections end.")
     mentions: List[BookMention] = Field(description="List of specific book mentions identified within the episode_quote.")
 
 class BookMentionsResponse(BaseModel):
@@ -52,15 +53,16 @@ class BookExtractor:
   
   STRATEGY: HIERARCHICAL EXTRACTION
   1. IDENTIFY EPISODE RANGE: For each episode, find the entire range of the transcript that contains book discussions. 
-     - The 'episode_quote' MUST start from the very first mention of any book and continue until the last book discussion and its related reflections have concluded.
-  2. EXTRACT MENTIONS: Within that 'episode_quote', identify specific segments ('book_mention_quote') for each individual book discussed.
+     - Provide a unique 'episode_quote_start' and 'episode_quote_end' snippet from the transcript.
+     - The range MUST start from the very first mention of any book and continue until the last book discussion and its related reflections have concluded.
+  2. EXTRACT MENTIONS: Within that range, identify specific segments ('book_mention_quote') for each individual book discussed.
   3. ANALYZE: For each mention, provide detailed book metadata.
   4. SEARCH & GROUND: For every book identified, you MUST perform a web search to find its official Goodreads URL.
   
   RULES:
   - Focus on books only.
-  - 'episode_quote' is the macro-context (one per episode).
-  - 'book_mention_quote' is the micro-context (multiple per episode, split from the episode_quote).
+  - 'episode_quote_start' and 'episode_quote_end' are snippets used to extract the full macro-context from the original transcript.
+  - 'book_mention_quote' is the micro-context (multiple per episode).
   - You have access to web search via the ':online' model suffix.
   """
 
@@ -104,12 +106,32 @@ class BookExtractor:
                 
                 all_flattened_results = []
                 id_to_title = {ep['episode_id']: ep['episode_title'] for ep in episodes}
+                id_to_transcript = {ep['episode_id']: ep['episode_transcript'] for ep in episodes}
                 
                 for ep_summary in ep_summaries:
-                    ep_quote = ep_summary.get('episode_quote', '')
                     eid = str(ep_summary.get('episode_id', 'unknown'))
                     ep_name = id_to_title.get(eid, 'Unknown Episode')
+                    transcript = id_to_transcript.get(eid, '')
                     
+                    # Extract full episode_quote using markers
+                    start_marker = ep_summary.get('episode_quote_start', '')
+                    end_marker = ep_summary.get('episode_quote_end', '')
+                    
+                    ep_quote = ""
+                    if transcript and start_marker and end_marker:
+                        # Find the start index
+                        start_idx = transcript.find(start_marker)
+                        # Find the end index (starting from start_idx)
+                        if start_idx != -1:
+                            end_idx = transcript.find(end_marker, start_idx)
+                            if end_idx != -1:
+                                # Include the full end marker
+                                ep_quote = transcript[start_idx:end_idx + len(end_marker)]
+                    
+                    # Fallback if markers failed or weren't unique enough
+                    if not ep_quote and start_marker:
+                        ep_quote = f"[Extraction failed for markers: {start_marker}...{end_marker}]"
+
                     for mention in ep_summary.get('mentions', []):
                         mention_quote = mention.get('book_mention_quote', '')
                         analysis = mention.get('analysis', {})

@@ -124,6 +124,7 @@ def main():
                         formatted_mentions.append(m_copy)
                     
                     storage.save_to_csv(formatted_mentions)
+                    storage.save_to_json(formatted_mentions)
                     storage.save_to_db(formatted_mentions)
             elif mentions == []:
                 # This could be either no mentions found OR extraction failed after retries
