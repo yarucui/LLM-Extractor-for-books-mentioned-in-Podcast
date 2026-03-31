@@ -94,17 +94,33 @@ def main():
                 
                 # 3. Storage
                 if verified_mentions:
-                    # Apply formatting: only include context_quote for the first mention in a block
+                    # Apply formatting: 
+                    # - episode_quote only for the first row of an episode
+                    # - book_mention_quote only for the first row of a mention quote
                     formatted_mentions = []
-                    last_quote = None
+                    last_episode_id = None
+                    last_mention_quote = None
+                    
                     for m in verified_mentions:
                         m_copy = m.copy()
-                        current_quote = m_copy.get('context_quote')
-                        if current_quote and current_quote == last_quote:
-                            m_copy['context_quote'] = ""
+                        
+                        # Handle episode_quote (one per episode)
+                        current_episode_id = m_copy.get('episode_id')
+                        if current_episode_id == last_episode_id:
+                            m_copy['episode_quote'] = ""
+                        else:
+                            last_episode_id = current_episode_id
+                            # If it's a new episode, we reset the last_mention_quote to ensure it's shown
+                            last_mention_quote = None
+                        
+                        # Handle book_mention_quote (one per mention quote)
+                        current_mention_quote = m_copy.get('book_mention_quote')
+                        if current_mention_quote == last_mention_quote:
+                            m_copy['book_mention_quote'] = ""
                             m_copy['word_count'] = 0
                         else:
-                            last_quote = current_quote
+                            last_mention_quote = current_mention_quote
+                        
                         formatted_mentions.append(m_copy)
                     
                     storage.save_to_csv(formatted_mentions)

@@ -110,8 +110,8 @@ class BookVerifier:
                 if isinstance(verification, dict):
                     # Update the mention with verification results
                     mention.update(verification)
-                    # Recalculate word count of the context quote
-                    mention['word_count'] = count_words(mention.get('context_quote', ''))
+                    # Recalculate word count of the book mention quote
+                    mention['word_count'] = count_words(mention.get('book_mention_quote', ''))
                     return mention
                 
                 return mention
