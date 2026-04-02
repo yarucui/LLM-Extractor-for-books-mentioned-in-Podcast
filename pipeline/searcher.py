@@ -5,6 +5,7 @@ import re
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from openai import OpenAI
+from .utils import safe_json_loads
 
 class SearchResult(BaseModel):
     goodreads_url: Optional[str] = Field(description="The official Goodreads URL for the book.")
@@ -77,7 +78,9 @@ class BookSearcher:
                 if not raw_text:
                     return {"goodreads_url": None, "confidence": 0, "search_query_used": ""}
 
-                data = json.loads(raw_text, strict=False)
+                data = safe_json_loads(raw_text)
+                if not data or not isinstance(data, dict):
+                    return {"goodreads_url": None, "confidence": 0, "search_query_used": ""}
                 return data
                     
             except Exception as e:

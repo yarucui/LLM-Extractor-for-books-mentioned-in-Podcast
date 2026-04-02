@@ -5,7 +5,7 @@ import re
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from openai import OpenAI
-from .utils import count_words
+from .utils import count_words, safe_json_loads
 
 class BookAnalysis(BaseModel):
     book_name: str = Field(description="The OFFICIAL FULL TITLE of the book, including subtitles.")
@@ -91,7 +91,10 @@ class BookExtractor:
                 if not raw_text:
                     return []
 
-                data = json.loads(raw_text, strict=False)
+                data = safe_json_loads(raw_text)
+                if not data or not isinstance(data, dict):
+                    return []
+                
                 blocks = data.get("blocks", [])
                 
                 all_flattened_results = []

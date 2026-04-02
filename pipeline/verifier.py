@@ -5,7 +5,7 @@ import re
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from openai import OpenAI
-from .utils import count_words
+from .utils import count_words, safe_json_loads
 
 class VerificationResult(BaseModel):
     is_book: bool = Field(description="Confirm if this is definitely a book (true/false).")
@@ -78,35 +78,13 @@ class BookVerifier:
                     print(f"Warning: No content in response.")
                     return mention
 
-                # Clean response text for JSON parsing
-                text = raw_text.strip()
+                # Parse JSON response using robust utility
+                verification = safe_json_loads(raw_text)
                 
-                # If the model still outputs markdown blocks despite strict mode (rare but possible)
-                if text.startswith("```"):
-                    if "```json" in text:
-                        text = text.split("```json")[-1].split("```")[0]
-                    else:
-                        text = text.split("```")[-1].split("```")[0]
-                
-                text = text.strip()
-
-                # Parse JSON response
-                try:
-                    verification = json.loads(text, strict=False)
-                except json.JSONDecodeError as e:
-                    # Fallback: try regex if direct parsing fails
-                    json_match = re.search(r'\{.*\}', text, re.DOTALL)
-                    if json_match:
-                        try:
-                            verification = json.loads(json_match.group(0), strict=False)
-                        except:
-                            print(f"JSON parsing error during verification (even with regex): {e}")
-                            print(f"Problematic text snippet: {text[:100]}...{text[-100:]}")
-                            return mention
-                    else:
-                        print(f"JSON parsing error during verification: {e}")
-                        print(f"Problematic text snippet: {text[:100]}...{text[-100:]}")
-                        return mention
+                if not verification:
+                    print(f"Failed to parse JSON from verifier response.")
+                    print(f"Problematic text snippet: {raw_text[:100]}...{raw_text[-100:]}")
+                    return mention
                 
                 if isinstance(verification, dict):
                     # Update the mention with verification results
