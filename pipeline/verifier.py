@@ -35,15 +35,16 @@ class BookVerifier:
             self.model_name = model_name
             
         self.system_instruction = """You are a senior research auditor specializing in book metadata.
-        Your task is to verify and normalize book mentions.
+        Your task is to audit and normalize book mentions extracted from podcast transcripts.
         
-        1. VERIFY: Use web search to verify the book's OFFICIAL FULL TITLE, author, and Goodreads URL.
-        2. CORRECT: If any information (title, author, URL) is incomplete or incorrect, you MUST provide the corrected version in the respective fields.
-        3. NOTES: 
-           - If the input was already 100% correct, set verification_notes to 'all good'.
-           - If you made changes, explain them briefly in verification_notes.
+        1. AUDIT: Verify the book's OFFICIAL FULL TITLE and author.
+        2. NORMALIZE: Ensure the Goodreads URL is correctly formatted and points to the right book.
+        3. CORRECT: If any information is incomplete or incorrect, you MUST provide the corrected version in the respective fields.
         
-        Search Strategy: For Goodreads URLs, use 'short book name + author name' for better matching.
+        RULES:
+        - If the input was already 100% correct, set verification_notes to 'all good'.
+        - If you made changes, explain them briefly in verification_notes.
+        - You have access to web search via the ':online' model suffix to verify metadata.
         """
 
     def verify_mention(self, mention: Dict[str, Any], max_retries: int = 5) -> Dict[str, Any]:
@@ -77,39 +78,41 @@ class BookVerifier:
                     print(f"Warning: No content in response.")
                     return mention
 
-                # Robust JSON extraction
+                # Clean response text for JSON parsing
                 text = raw_text.strip()
                 
-                # Try to find JSON in markdown blocks first
-                if "```" in text:
-                    matches = re.findall(r'```(?:json)?\s*(.*?)\s*```', text, re.DOTALL)
-                    if matches:
-                        text = matches[-1] # Take the last block
+                # If the model still outputs markdown blocks despite strict mode (rare but possible)
+                if text.startswith("```"):
+                    if "```json" in text:
+                        text = text.split("```json")[-1].split("```")[0]
+                    else:
+                        text = text.split("```")[-1].split("```")[0]
                 
                 text = text.strip()
 
                 # Parse JSON response
                 try:
                     verification = json.loads(text, strict=False)
-                except json.JSONDecodeError:
-                    # Fallback: find the last balanced JSON object
-                    json_matches = list(re.finditer(r'\{.*\}', text, re.DOTALL))
-                    if json_matches:
+                except json.JSONDecodeError as e:
+                    # Fallback: try regex if direct parsing fails
+                    json_match = re.search(r'\{.*\}', text, re.DOTALL)
+                    if json_match:
                         try:
-                            verification = json.loads(json_matches[-1].group(0), strict=False)
-                        except Exception as e:
+                            verification = json.loads(json_match.group(0), strict=False)
+                        except:
                             print(f"JSON parsing error during verification (even with regex): {e}")
                             print(f"Problematic text snippet: {text[:100]}...{text[-100:]}")
                             return mention
                     else:
-                        print(f"No JSON object found in response.")
+                        print(f"JSON parsing error during verification: {e}")
+                        print(f"Problematic text snippet: {text[:100]}...{text[-100:]}")
                         return mention
                 
                 if isinstance(verification, dict):
                     # Update the mention with verification results
                     mention.update(verification)
-                    # Recalculate word count of the book mention quote
-                    mention['word_count'] = count_words(mention.get('book_mention_quote', ''))
+                    # Recalculate word count of the context quote
+                    mention['word_count'] = count_words(mention.get('context_quote', ''))
                     return mention
                 
                 return mention

@@ -8,26 +8,21 @@ from openai import OpenAI
 from .utils import count_words
 
 class BookAnalysis(BaseModel):
-    book_name: str = Field(description="The OFFICIAL FULL TITLE of the book, including subtitles. Use web search to verify.")
+    book_name: str = Field(description="The OFFICIAL FULL TITLE of the book, including subtitles.")
     author_name: Optional[str] = Field(description="The full name of the author.")
     mention_type: str = Field(description="Nature of mention: ['critique', 'reference', 'recommendation', 'author_interview', 'self_promotion', 'advertisement'].")
     recommend_intensity: str = Field(description="Intensity: ['critical', 'negative', 'neutral', 'positive', 'strong_recommendation'].")
     author_present: bool = Field(description="True if the author is a guest.")
-    search_query_used: str = Field(description="The specific search query used to find the Goodreads URL.")
-    goodreads_url: Optional[str] = Field(description="The official Goodreads URL for this book.")
+    search_query_used: str = Field(default="", description="Leave empty. This will be populated by the search agent.")
+    goodreads_url: Optional[str] = Field(default=None, description="Leave null. This will be populated by the search agent.")
 
-class BookMention(BaseModel):
-    book_mention_quote: str = Field(description="A specific, unedited segment from the episode_quote where this particular book is discussed. Capture the immediate context exactly as it appears in the transcript.")
-    analysis: BookAnalysis
-
-class EpisodeBookSummary(BaseModel):
+class BookContextBlock(BaseModel):
+    context_quote: str = Field(description="A long, continuous segment from the transcript where a book or its content is being discussed. Include enough surrounding dialogue to capture the full essence of the discussion, even if the book title isn't explicitly repeated in every sentence.")
+    books: List[BookAnalysis] = Field(description="List of books identified and analyzed within this specific context quote.")
     episode_id: str = Field(description="The ID of the episode.")
-    episode_quote_start: str = Field(description="A unique 15-20 word snippet from the transcript where the book discussion starts.")
-    episode_quote_end: str = Field(description="A unique 15-20 word snippet from the transcript where the book discussion and related reflections end.")
-    mentions: List[BookMention] = Field(description="List of specific book mentions identified within the episode_quote.")
 
 class BookMentionsResponse(BaseModel):
-    episodes: List[EpisodeBookSummary]
+    blocks: List[BookContextBlock]
 
 class BookExtractor:
     def __init__(self, api_key: str, model_name: str = "google/gemini-3.1-pro-preview"):
@@ -43,34 +38,29 @@ class BookExtractor:
                 "X-OpenRouter-Title": "Podcast Book Context Extractor",
             }
         )
-        # Append :online to enable web search if not already present
-        if not model_name.endswith(":online"):
-            self.model_name = f"{model_name}:online"
-        else:
-            self.model_name = model_name
+        self.model_name = model_name
             
         self.system_instruction = """You are a senior research analyst specializing in literary discussions in podcasts.
   
-  STRATEGY: HIERARCHICAL EXTRACTION
-  1. IDENTIFY EPISODE RANGE: For each episode, find the entire range of the transcript that contains book discussions. 
-     - Provide a unique 'episode_quote_start' and 'episode_quote_end' snippet from the transcript.
-     - The range MUST start from the very first mention of any book and continue until the last book discussion and its related reflections have concluded.
-  2. EXTRACT MENTIONS: Within that range, identify specific segments ('book_mention_quote') for each individual book discussed.
-  3. ANALYZE: For each mention, provide detailed book metadata.
-  4. SEARCH & GROUND: For every book identified, you MUST perform a web search to find its official Goodreads URL.
+  STRATEGY: DEEP-CONTEXT EXTRACTION
+  1. IDENTIFY: Find all segments in the transcript where a book, its themes, or its content are being discussed.
+  2. EXTRACT CONTEXT: Capture the ENTIRE discussion block (Context Quote). 
+     - This must be a long, continuous segment.
+     - Include host/guest interactions, philosophical or practical tangents derived from the book, and any in-depth analysis.
+     - DO NOT truncate. If the discussion spans multiple minutes, capture the whole span to reflect the 'intellectual arc' of the conversation.
+  3. ANALYZE: For each Context Quote, identify the specific book(s) and author(s).
   
   RULES:
-  - Focus on books only.
-  - 'episode_quote_start' and 'episode_quote_end' are snippets used to extract the full macro-context from the original transcript.
-  - 'book_mention_quote' is the micro-context (multiple per episode).
-  - You have access to web search via the ':online' model suffix.
+  - Focus on books only. Exclude other media (podcasts, movies, etc.).
+  - Context Quote is your primary unit. It must be substantial and capture the 'why' and 'so what' of the discussion.
+  - You have access to web search via the ':online' model suffix. Use it to verify book titles and authors.
   """
 
     def extract_mentions_batch(self, episodes: List[Dict[str, Any]], max_retries: int = 5) -> List[Dict[str, Any]]:
         """
-        Extracts hierarchical book mentions from a batch of episodes.
+        Extracts book context blocks and metadata from a batch of episodes.
         """
-        combined_prompt = "Analyze the following podcast episodes for book discussions. Extract the full episode-level discussion range and specific book mention quotes with metadata:\n\n"
+        combined_prompt = "Analyze the following podcast episodes for book discussions. Extract long context quotes and detailed book metadata including Goodreads URLs:\n\n"
         for ep in episodes:
             combined_prompt += f"--- EPISODE START ---\n"
             combined_prompt += f"Episode ID: {ep['episode_id']}\n"
@@ -101,75 +91,25 @@ class BookExtractor:
                 if not raw_text:
                     return []
 
-                # Robust JSON extraction
-                text = raw_text.strip()
-                
-                # Try to find JSON in markdown blocks first
-                if "```" in text:
-                    matches = re.findall(r'```(?:json)?\s*(.*?)\s*```', text, re.DOTALL)
-                    if matches:
-                        text = matches[-1] # Take the last block
-                
-                text = text.strip()
-                
-                try:
-                    data = json.loads(text, strict=False)
-                except json.JSONDecodeError:
-                    # Fallback: find the last balanced JSON object
-                    # We use a simpler regex for finding the last { ... } block
-                    json_matches = list(re.finditer(r'\{.*\}', text, re.DOTALL))
-                    if json_matches:
-                        try:
-                            data = json.loads(json_matches[-1].group(0), strict=False)
-                        except:
-                            print(f"Failed to parse JSON even with regex fallback.")
-                            return []
-                    else:
-                        print(f"No JSON object found in response.")
-                        return []
-
-                ep_summaries = data.get("episodes", [])
+                data = json.loads(raw_text, strict=False)
+                blocks = data.get("blocks", [])
                 
                 all_flattened_results = []
                 id_to_title = {ep['episode_id']: ep['episode_title'] for ep in episodes}
-                id_to_transcript = {ep['episode_id']: ep['episode_transcript'] for ep in episodes}
                 
-                for ep_summary in ep_summaries:
-                    eid = str(ep_summary.get('episode_id', 'unknown'))
+                for block in blocks:
+                    context = block.get('context_quote', '')
+                    eid = str(block.get('episode_id', 'unknown'))
                     ep_name = id_to_title.get(eid, 'Unknown Episode')
-                    transcript = id_to_transcript.get(eid, '')
                     
-                    # Extract full episode_quote using markers
-                    start_marker = ep_summary.get('episode_quote_start', '')
-                    end_marker = ep_summary.get('episode_quote_end', '')
-                    
-                    ep_quote = ""
-                    if transcript and start_marker and end_marker:
-                        # Find the start index
-                        start_idx = transcript.find(start_marker)
-                        # Find the end index (starting from start_idx)
-                        if start_idx != -1:
-                            end_idx = transcript.find(end_marker, start_idx)
-                            if end_idx != -1:
-                                # Include the full end marker
-                                ep_quote = transcript[start_idx:end_idx + len(end_marker)]
-                    
-                    # Fallback if markers failed or weren't unique enough
-                    if not ep_quote and start_marker:
-                        ep_quote = f"[Extraction failed for markers: {start_marker}...{end_marker}]"
-
-                    for mention in ep_summary.get('mentions', []):
-                        mention_quote = mention.get('book_mention_quote', '')
-                        analysis = mention.get('analysis', {})
-                        
-                        # Flatten the structure
+                    for book in block.get('books', []):
+                        # Flatten the structure for the existing database/CSV index
                         result = {
+                            'context_quote': context,
                             'episode_id': eid,
                             'episode_name': ep_name,
-                            'episode_quote': ep_quote,
-                            'book_mention_quote': mention_quote,
-                            'word_count': count_words(mention_quote),
-                            **analysis
+                            'word_count': count_words(context),
+                            **book
                         }
                         all_flattened_results.append(result)
                 

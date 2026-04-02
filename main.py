@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 from pipeline.loader import PodcastLoader
 from pipeline.extractor import BookExtractor
+from pipeline.searcher import BookSearcher
 from pipeline.verifier import BookVerifier
 from pipeline.storage import BookStorage
 
@@ -36,6 +37,7 @@ def main():
     # Initialize components
     loader = PodcastLoader(args.raw_text_dir)
     extractor = BookExtractor(args.api_key, args.model)
+    searcher = BookSearcher(args.api_key, args.model)
     verifier = BookVerifier(args.api_key, args.model)
     storage = BookStorage(args.output_file, args.db_file)
     
@@ -69,62 +71,36 @@ def main():
             print(f"\nProcessing batch {i//args.batch_size + 1} ({len(batch)} episodes)...")
             
             # 1. Extraction (Batch)
-            # extractor now handles retries internally
             mentions = extractor.extract_mentions_batch(batch)
             
             if mentions:
                 print(f"Found {len(mentions)} potential book mentions.")
                 
-                # 2. Verification (Individual)
-                verified_mentions = []
+                # 2. Search & Verification (Individual)
+                final_mentions = []
                 try:
-                    for m in tqdm(mentions, desc="Verifying Mentions", leave=False):
+                    for m in tqdm(mentions, desc="Processing Mentions", leave=False):
                         try:
-                            # verifier now handles retries internally
-                            verified_m = verifier.verify_mention(m)
-                            verified_mentions.append(verified_m)
+                            # 2a. Dedicated Search Agent for Goodreads URL
+                            search_res = searcher.search_goodreads(m.get('book_name', ''), m.get('author_name'))
+                            m['goodreads_url'] = search_res.get('goodreads_url')
+                            m['search_query_used'] = search_res.get('search_query_used', '')
+                            
+                            # 2b. Audit/Verification
+                            final_m = verifier.verify_mention(m)
+                            final_mentions.append(final_m)
                         except Exception as ve:
-                            print(f"Error verifying mention: {ve}")
-                            verified_mentions.append(m)
-                        # Small delay between verifications to respect RPM
+                            print(f"Error processing mention: {ve}")
+                            final_mentions.append(m)
+                        # Small delay between calls to respect RPM
                         time.sleep(2) 
                 except KeyboardInterrupt:
-                    print("\nVerification interrupted by user. Saving progress so far...")
-                    # Continue to storage with what we have
+                    print("\nProcessing interrupted by user. Saving progress so far...")
                 
                 # 3. Storage
-                if verified_mentions:
-                    # Apply formatting: 
-                    # - episode_quote only for the first row of an episode
-                    # - book_mention_quote only for the first row of a mention quote
-                    formatted_mentions = []
-                    last_episode_id = None
-                    last_mention_quote = None
-                    
-                    for m in verified_mentions:
-                        m_copy = m.copy()
-                        
-                        # Handle episode_quote (one per episode)
-                        current_episode_id = m_copy.get('episode_id')
-                        if current_episode_id == last_episode_id:
-                            m_copy['episode_quote'] = ""
-                        else:
-                            last_episode_id = current_episode_id
-                            # If it's a new episode, we reset the last_mention_quote to ensure it's shown
-                            last_mention_quote = None
-                        
-                        # Handle book_mention_quote (one per mention quote)
-                        current_mention_quote = m_copy.get('book_mention_quote')
-                        if current_mention_quote == last_mention_quote:
-                            m_copy['book_mention_quote'] = ""
-                            m_copy['word_count'] = 0
-                        else:
-                            last_mention_quote = current_mention_quote
-                        
-                        formatted_mentions.append(m_copy)
-                    
-                    storage.save_to_json(formatted_mentions)
-                    storage.save_to_db(formatted_mentions)
+                if final_mentions:
+                    storage.save_to_csv(final_mentions)
+                    storage.save_to_db(final_mentions)
             elif mentions == []:
                 # This could be either no mentions found OR extraction failed after retries
                 # The extractor prints its own error messages, so we just continue
