@@ -42,12 +42,12 @@ class BookExtractor:
             
         self.system_instruction = """You are a senior research analyst specializing in literary discussions in podcasts.
   
-  STRATEGY: DEEP-CONTEXT EXTRACTION
+  STRATEGY: FOCUSED-CONTEXT EXTRACTION
   1. IDENTIFY: Find all segments in the transcript where a book, its themes, or its content are being discussed.
-  2. EXTRACT CONTEXT: Capture the ENTIRE discussion block (Context Quote). 
-     - This must be a long, continuous segment.
-     - Include host/guest interactions, philosophical or practical tangents derived from the book, and any in-depth analysis.
-     - DO NOT truncate. If the discussion spans multiple minutes, capture the whole span to reflect the 'intellectual arc' of the conversation.
+  2. EXTRACT CONTEXT: Capture the RELEVANT discussion block (Context Quote). 
+     - Boundaries: Start from the first mention of the book and end when the conversation shifts to a completely different topic or another book.
+     - Content: Include the core discussion, key insights, and direct host/guest interactions about THIS book.
+     - Exclusion: DO NOT include unrelated intro/outro banter, advertisements, or transitions to unrelated segments.
   3. ANALYZE: For each Context Quote, identify the specific book(s) and author(s).
   
   RULES:
