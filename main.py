@@ -100,6 +100,7 @@ def main():
                 # 3. Storage
                 if final_mentions:
                     storage.save_to_csv(final_mentions)
+                    storage.save_to_json(final_mentions)
                     storage.save_to_db(final_mentions)
             elif mentions == []:
                 # This could be either no mentions found OR extraction failed after retries

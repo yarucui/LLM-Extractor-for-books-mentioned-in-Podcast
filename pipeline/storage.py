@@ -1,6 +1,7 @@
 import pandas as pd
 import sqlite3
 import os
+import json
 from typing import List, Dict, Any
 
 class BookStorage:
@@ -34,15 +35,16 @@ class BookStorage:
         """
         Saves a list of book mentions to a CSV file.
         Appends to the file if it already exists, handling new columns.
+        Uses utf-8-sig encoding to prevent Mojibake in Excel.
         """
         df_new = pd.DataFrame(mentions)
         if not os.path.exists(self.output_file):
-            df_new.to_csv(self.output_file, index=False)
+            df_new.to_csv(self.output_file, index=False, encoding='utf-8-sig')
         else:
-            df_old = pd.read_csv(self.output_file)
+            df_old = pd.read_csv(self.output_file, encoding='utf-8-sig')
             # Combine old and new, ensuring all columns are present
             df_combined = pd.concat([df_old, df_new], ignore_index=True)
-            df_combined.to_csv(self.output_file, index=False)
+            df_combined.to_csv(self.output_file, index=False, encoding='utf-8-sig')
         print(f"Saved {len(mentions)} mentions to {self.output_file}")
 
     def save_to_db(self, mentions: List[Dict[str, Any]]):
@@ -88,7 +90,7 @@ class BookStorage:
             return []
         
         try:
-            df = pd.read_csv(self.output_file)
+            df = pd.read_csv(self.output_file, encoding='utf-8-sig')
             if 'episode_id' in df.columns:
                 return df['episode_id'].unique().tolist()
             return []
