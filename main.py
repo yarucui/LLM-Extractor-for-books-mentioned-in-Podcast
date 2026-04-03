@@ -8,6 +8,7 @@ from pipeline.extractor import BookExtractor
 from pipeline.searcher import BookSearcher
 from pipeline.verifier import BookVerifier
 from pipeline.storage import BookStorage
+from pipeline.utils import TokenTracker
 
 def main():
     # Load environment variables
@@ -40,6 +41,7 @@ def main():
     searcher = BookSearcher(args.api_key, args.model)
     verifier = BookVerifier(args.api_key, args.model)
     storage = BookStorage(args.output_file, args.db_file)
+    tracker = TokenTracker(args.model)
     
     # Get all JSON files in the raw_text directory
     json_files = loader.get_all_json_files()
@@ -71,7 +73,12 @@ def main():
             print(f"\nProcessing batch {i//args.batch_size + 1} ({len(batch)} episodes)...")
             
             # 1. Extraction (Batch)
-            mentions = extractor.extract_mentions_batch(batch)
+            extraction_data = extractor.extract_mentions_batch(batch)
+            mentions = extraction_data.get("mentions", [])
+            tracker.add_usage(
+                extraction_data["usage"]["prompt_tokens"], 
+                extraction_data["usage"]["completion_tokens"]
+            )
             
             if mentions:
                 print(f"Found {len(mentions)} potential book mentions.")
@@ -82,13 +89,23 @@ def main():
                     for m in tqdm(mentions, desc="Processing Mentions", leave=False):
                         try:
                             # 2a. Dedicated Search Agent for Goodreads URL
-                            search_res = searcher.search_goodreads(m.get('book_name', ''), m.get('author_name'))
-                            m['goodreads_url'] = search_res.get('goodreads_url')
-                            m['search_query_used'] = search_res.get('search_query_used', '')
+                            search_data = searcher.search_goodreads(m.get('book_name', ''), m.get('author_name'))
+                            tracker.add_usage(
+                                search_data["usage"]["prompt_tokens"], 
+                                search_data["usage"]["completion_tokens"]
+                            )
+                            
+                            m['goodreads_url'] = search_data["result"].get('goodreads_url')
+                            m['search_query_used'] = search_data["result"].get('search_query_used', '')
                             
                             # 2b. Audit/Verification
-                            final_m = verifier.verify_mention(m)
-                            final_mentions.append(final_m)
+                            verification_data = verifier.verify_mention(m)
+                            tracker.add_usage(
+                                verification_data["usage"]["prompt_tokens"], 
+                                verification_data["usage"]["completion_tokens"]
+                            )
+                            
+                            final_mentions.append(verification_data["mention"])
                         except Exception as ve:
                             print(f"Error processing mention: {ve}")
                             final_mentions.append(m)
@@ -113,6 +130,7 @@ def main():
                 time.sleep(args.rate_limit_delay)
                 
     print("\nExtraction and Verification Pipeline Complete!")
+    print(tracker.get_report())
     print(f"Results saved to {args.output_file} and {args.db_file}")
 
 if __name__ == "__main__":

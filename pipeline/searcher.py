@@ -51,6 +51,7 @@ class BookSearcher:
     def search_goodreads(self, book_name: str, author_name: Optional[str], max_retries: int = 5) -> Dict[str, Any]:
         """
         Searches for a Goodreads URL for a specific book and author.
+        Returns a dict with 'result' and 'usage'.
         """
         query_hint = f"'{book_name}' by {author_name}" if author_name else f"'{book_name}'"
         prompt = f"Find the official Goodreads URL for the book: {query_hint}. Use the query pattern: '[Title] [Author] book goodreads'."
@@ -74,14 +75,20 @@ class BookSearcher:
                     }
                 )
                 
+                # Capture usage
+                usage = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens
+                }
+
                 raw_text = response.choices[0].message.content
                 if not raw_text:
-                    return {"goodreads_url": None, "confidence": 0, "search_query_used": ""}
+                    return {"result": {"goodreads_url": None, "confidence": 0, "search_query_used": ""}, "usage": usage}
 
                 data = safe_json_loads(raw_text)
                 if not data or not isinstance(data, dict):
-                    return {"goodreads_url": None, "confidence": 0, "search_query_used": ""}
-                return data
+                    return {"result": {"goodreads_url": None, "confidence": 0, "search_query_used": ""}, "usage": usage}
+                return {"result": data, "usage": usage}
                     
             except Exception as e:
                 error_str = str(e).lower()
@@ -96,6 +103,6 @@ class BookSearcher:
                     time.sleep(wait_time)
                 else:
                     print(f"Error searching for book: {e}")
-                    return {"goodreads_url": None, "confidence": 0, "search_query_used": ""}
+                    return {"result": {"goodreads_url": None, "confidence": 0, "search_query_used": ""}, "usage": {"prompt_tokens": 0, "completion_tokens": 0}}
         
-        return {"goodreads_url": None, "confidence": 0, "search_query_used": ""}
+        return {"result": {"goodreads_url": None, "confidence": 0, "search_query_used": ""}, "usage": {"prompt_tokens": 0, "completion_tokens": 0}}

@@ -56,9 +56,10 @@ class BookExtractor:
   - You have access to web search via the ':online' model suffix. Use it to verify book titles and authors.
   """
 
-    def extract_mentions_batch(self, episodes: List[Dict[str, Any]], max_retries: int = 5) -> List[Dict[str, Any]]:
+    def extract_mentions_batch(self, episodes: List[Dict[str, Any]], max_retries: int = 5) -> Dict[str, Any]:
         """
         Extracts book context blocks and metadata from a batch of episodes.
+        Returns a dict with 'mentions' and 'usage'.
         """
         combined_prompt = "Analyze the following podcast episodes for book discussions. Extract long context quotes and detailed book metadata including Goodreads URLs:\n\n"
         for ep in episodes:
@@ -87,13 +88,19 @@ class BookExtractor:
                     }
                 )
                 
+                # Capture usage
+                usage = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens
+                }
+
                 raw_text = response.choices[0].message.content
                 if not raw_text:
-                    return []
+                    return {"mentions": [], "usage": usage}
 
                 data = safe_json_loads(raw_text)
                 if not data or not isinstance(data, dict):
-                    return []
+                    return {"mentions": [], "usage": usage}
                 
                 blocks = data.get("blocks", [])
                 
@@ -116,7 +123,7 @@ class BookExtractor:
                         }
                         all_flattened_results.append(result)
                 
-                return all_flattened_results
+                return {"mentions": all_flattened_results, "usage": usage}
                     
             except Exception as e:
                 error_str = str(e).lower()
@@ -133,7 +140,7 @@ class BookExtractor:
                     time.sleep(wait_time)
                 else:
                     print(f"Error extracting from batch: {e}")
-                    return []
+                    return {"mentions": [], "usage": {"prompt_tokens": 0, "completion_tokens": 0}}
         
         print(f"Max retries reached for batch extraction.")
-        return []
+        return {"mentions": [], "usage": {"prompt_tokens": 0, "completion_tokens": 0}}

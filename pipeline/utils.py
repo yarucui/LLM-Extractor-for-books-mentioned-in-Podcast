@@ -2,6 +2,53 @@ import json
 import re
 from typing import Any, Optional
 
+class TokenTracker:
+    def __init__(self, model_name: str):
+        self.model_name = model_name
+        self.total_prompt_tokens = 0
+        self.total_completion_tokens = 0
+        self.total_calls = 0
+        
+        # OpenRouter pricing for google/gemini-3-flash-preview (approximate)
+        # Prices are per 1M tokens
+        self.prices = {
+            "google/gemini-3-flash-preview": {"input": 0.075, "output": 0.30},
+            "google/gemini-3.1-pro-preview": {"input": 1.25, "output": 5.00},
+            "default": {"input": 0.1, "output": 0.4} # Fallback
+        }
+
+    def add_usage(self, prompt_tokens: int, completion_tokens: int):
+        self.total_prompt_tokens += prompt_tokens
+        self.total_completion_tokens += completion_tokens
+        self.total_calls += 1
+
+    def get_report(self) -> str:
+        # Determine pricing
+        price_key = "default"
+        for key in self.prices:
+            if key in self.model_name:
+                price_key = key
+                break
+        
+        p = self.prices[price_key]
+        input_cost = (self.total_prompt_tokens / 1_000_000) * p["input"]
+        output_cost = (self.total_completion_tokens / 1_000_000) * p["output"]
+        total_cost = input_cost + output_cost
+        
+        report = f"\n{'='*40}\n"
+        report += f"📊 USAGE REPORT ({self.model_name})\n"
+        report += f"{'='*40}\n"
+        report += f"Total API Calls:      {self.total_calls}\n"
+        report += f"Prompt Tokens:        {self.total_prompt_tokens:,}\n"
+        report += f"Completion Tokens:    {self.total_completion_tokens:,}\n"
+        report += f"Total Tokens:         {self.total_prompt_tokens + self.total_completion_tokens:,}\n"
+        report += f"{'-'*40}\n"
+        report += f"Estimated Input Cost:  ${input_cost:.4f}\n"
+        report += f"Estimated Output Cost: ${output_cost:.4f}\n"
+        report += f"TOTAL ESTIMATED COST:  ${total_cost:.4f}\n"
+        report += f"{'='*40}\n"
+        return report
+
 def count_words(text: str) -> int:
     """
     Counts the number of words in a string.

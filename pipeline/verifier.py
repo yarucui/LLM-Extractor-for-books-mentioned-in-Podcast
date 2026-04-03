@@ -50,6 +50,7 @@ class BookVerifier:
     def verify_mention(self, mention: Dict[str, Any], max_retries: int = 5) -> Dict[str, Any]:
         """
         Verifies and normalizes a single book mention with retry logic for rate limits.
+        Returns a dict with 'mention' and 'usage'.
         """
         prompt = f"Verify and normalize this book mention. Return the result as a JSON object:\n\n{json.dumps(mention, indent=2)}"
         
@@ -73,10 +74,16 @@ class BookVerifier:
                     }
                 )
                 
+                # Capture usage
+                usage = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens
+                }
+
                 raw_text = response.choices[0].message.content
                 if not raw_text:
                     print(f"Warning: No content in response.")
-                    return mention
+                    return {"mention": mention, "usage": usage}
 
                 # Parse JSON response using robust utility
                 verification = safe_json_loads(raw_text)
@@ -84,16 +91,16 @@ class BookVerifier:
                 if not verification:
                     print(f"Failed to parse JSON from verifier response.")
                     print(f"Problematic text snippet: {raw_text[:100]}...{raw_text[-100:]}")
-                    return mention
+                    return {"mention": mention, "usage": usage}
                 
                 if isinstance(verification, dict):
                     # Update the mention with verification results
                     mention.update(verification)
                     # Recalculate word count of the context quote
                     mention['word_count'] = count_words(mention.get('context_quote', ''))
-                    return mention
+                    return {"mention": mention, "usage": usage}
                 
-                return mention
+                return {"mention": mention, "usage": usage}
             except Exception as e:
                 error_str = str(e).lower()
                 if "429" in error_str or "rate limit" in error_str or "too many requests" in error_str:
@@ -109,7 +116,7 @@ class BookVerifier:
                     time.sleep(wait_time)
                 else:
                     print(f"Error verifying mention: {e}")
-                    return mention
+                    return {"mention": mention, "usage": {"prompt_tokens": 0, "completion_tokens": 0}}
         
         print(f"Max retries reached for mention verification.")
-        return mention
+        return {"mention": mention, "usage": {"prompt_tokens": 0, "completion_tokens": 0}}
