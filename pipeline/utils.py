@@ -3,11 +3,9 @@ import re
 from typing import Any, Optional
 
 class TokenTracker:
-    def __init__(self, model_name: str):
-        self.model_name = model_name
-        self.total_prompt_tokens = 0
-        self.total_completion_tokens = 0
-        self.total_calls = 0
+    def __init__(self, default_model: str):
+        self.default_model = default_model
+        self.usage_by_model = {}
         
         # OpenRouter pricing for google/gemini-3-flash-preview (approximate)
         # Prices are per 1M tokens
@@ -17,35 +15,52 @@ class TokenTracker:
             "default": {"input": 0.1, "output": 0.4} # Fallback
         }
 
-    def add_usage(self, prompt_tokens: int, completion_tokens: int):
-        self.total_prompt_tokens += prompt_tokens
-        self.total_completion_tokens += completion_tokens
-        self.total_calls += 1
+    def add_usage(self, prompt_tokens: int, completion_tokens: int, model_name: Optional[str] = None):
+        model = model_name or self.default_model
+        if model not in self.usage_by_model:
+            self.usage_by_model[model] = {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "calls": 0
+            }
+        
+        self.usage_by_model[model]["prompt_tokens"] += prompt_tokens
+        self.usage_by_model[model]["completion_tokens"] += completion_tokens
+        self.usage_by_model[model]["calls"] += 1
 
     def get_report(self) -> str:
-        # Determine pricing
-        price_key = "default"
-        for key in self.prices:
-            if key in self.model_name:
-                price_key = key
-                break
-        
-        p = self.prices[price_key]
-        input_cost = (self.total_prompt_tokens / 1_000_000) * p["input"]
-        output_cost = (self.total_completion_tokens / 1_000_000) * p["output"]
-        total_cost = input_cost + output_cost
-        
         report = f"\n{'='*40}\n"
-        report += f"📊 USAGE REPORT ({self.model_name})\n"
+        report += f"📊 MULTI-MODEL USAGE REPORT\n"
         report += f"{'='*40}\n"
-        report += f"Total API Calls:      {self.total_calls}\n"
-        report += f"Prompt Tokens:        {self.total_prompt_tokens:,}\n"
-        report += f"Completion Tokens:    {self.total_completion_tokens:,}\n"
-        report += f"Total Tokens:         {self.total_prompt_tokens + self.total_completion_tokens:,}\n"
-        report += f"{'-'*40}\n"
-        report += f"Estimated Input Cost:  ${input_cost:.4f}\n"
-        report += f"Estimated Output Cost: ${output_cost:.4f}\n"
-        report += f"TOTAL ESTIMATED COST:  ${total_cost:.4f}\n"
+        
+        total_cost_all = 0
+        total_calls_all = 0
+        
+        for model, usage in self.usage_by_model.items():
+            # Determine pricing
+            price_key = "default"
+            for key in self.prices:
+                if key in model:
+                    price_key = key
+                    break
+            
+            p = self.prices[price_key]
+            input_cost = (usage["prompt_tokens"] / 1_000_000) * p["input"]
+            output_cost = (usage["completion_tokens"] / 1_000_000) * p["output"]
+            total_cost = input_cost + output_cost
+            
+            total_cost_all += total_cost
+            total_calls_all += usage["calls"]
+            
+            report += f"Model: {model}\n"
+            report += f"  Calls:             {usage['calls']}\n"
+            report += f"  Prompt Tokens:     {usage['prompt_tokens']:,}\n"
+            report += f"  Completion Tokens: {usage['completion_tokens']:,}\n"
+            report += f"  Estimated Cost:    ${total_cost:.4f}\n"
+            report += f"{'-'*40}\n"
+            
+        report += f"TOTAL CALLS:         {total_calls_all}\n"
+        report += f"TOTAL ESTIMATED COST: ${total_cost_all:.4f}\n"
         report += f"{'='*40}\n"
         return report
 

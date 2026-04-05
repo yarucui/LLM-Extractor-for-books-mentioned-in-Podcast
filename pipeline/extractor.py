@@ -17,7 +17,8 @@ class BookAnalysis(BaseModel):
     goodreads_url: Optional[str] = Field(default=None, description="Leave null. This will be populated by the search agent.")
 
 class BookContextBlock(BaseModel):
-    context_quote: str = Field(description="A long, continuous segment from the transcript where a book or its content is being discussed. Include enough surrounding dialogue to capture the full essence of the discussion, even if the book title isn't explicitly repeated in every sentence.")
+    start_snippet: str = Field(description="The EXACT first 15-20 words of the discussion block as they appear in the transcript. This must be a verbatim copy.")
+    end_snippet: str = Field(description="The EXACT last 15-20 words of the discussion block as they appear in the transcript. This must be a verbatim copy.")
     books: List[BookAnalysis] = Field(description="List of books identified and analyzed within this specific context quote.")
     episode_id: str = Field(description="The ID of the episode.")
 
@@ -42,26 +43,55 @@ class BookExtractor:
             
         self.system_instruction = """You are a senior research analyst specializing in literary discussions in podcasts.
   
-  STRATEGY: FOCUSED-CONTEXT EXTRACTION
+  STRATEGY: ANCHOR-BASED EXTRACTION
   1. IDENTIFY: Find all segments in the transcript where a book, its themes, or its content are being discussed.
-  2. EXTRACT CONTEXT: Capture the RELEVANT discussion block (Context Quote). 
-     - Boundaries: Start from the first mention of the book and end when the conversation shifts to a completely different topic or another book.
-     - Content: Include the core discussion, key insights, and direct host/guest interactions about THIS book.
-     - Exclusion: DO NOT include unrelated intro/outro banter, advertisements, or transitions to unrelated segments.
-  3. ANALYZE: For each Context Quote, identify the specific book(s) and author(s).
+  2. MARK BOUNDARIES: For each discussion, identify the EXACT starting sentence and the EXACT ending sentence.
+     - Start Snippet: The first 15-20 words of the segment.
+     - End Snippet: The last 15-20 words of the segment.
+     - IMPORTANT: These snippets MUST be copied VERBATIM from the transcript. Do not change a single character.
+  3. ANALYZE: For each segment, identify the specific book(s) and author(s).
   
   RULES:
-  - Focus on books only. Exclude other media (podcasts, movies, etc.).
-  - Context Quote is your primary unit. It must be substantial and capture the 'why' and 'so what' of the discussion.
-  - You have access to web search via the ':online' model suffix. Use it to verify book titles and authors.
+  - Focus on books only.
+  - Ensure the start and end snippets are unique enough to be found in the text.
+  - Do not summarize or use ellipses. Just provide the markers.
   """
+
+    def _extract_verbatim_text(self, transcript: str, start_snippet: str, end_snippet: str) -> str:
+        """
+        Helper to extract text between two markers in the original transcript.
+        """
+        try:
+            # Clean snippets of potential LLM artifacts
+            start_snippet = start_snippet.strip().replace('...', '')
+            end_snippet = end_snippet.strip().replace('...', '')
+            
+            start_idx = transcript.find(start_snippet)
+            if start_idx == -1:
+                # Try a fuzzy match if exact fails (first 10 chars)
+                start_idx = transcript.find(start_snippet[:10])
+                
+            if start_idx != -1:
+                end_search_start = start_idx + len(start_snippet)
+                end_idx = transcript.find(end_snippet, end_search_start)
+                
+                if end_idx == -1:
+                    # Try fuzzy match for end (last 10 chars)
+                    end_idx = transcript.find(end_snippet[-10:], end_search_start)
+                
+                if end_idx != -1:
+                    return transcript[start_idx : end_idx + len(end_snippet)].strip()
+            
+            return f"[Extraction failed for markers: {start_snippet[:30]}...{end_snippet[-30:]}]"
+        except Exception:
+            return "[Extraction Error]"
 
     def extract_mentions_batch(self, episodes: List[Dict[str, Any]], max_retries: int = 5) -> Dict[str, Any]:
         """
         Extracts book context blocks and metadata from a batch of episodes.
         Returns a dict with 'mentions' and 'usage'.
         """
-        combined_prompt = "Analyze the following podcast episodes for book discussions. Extract long context quotes and detailed book metadata including Goodreads URLs:\n\n"
+        combined_prompt = "Analyze the following podcast episodes for book discussions. Identify the start and end snippets for each discussion block and extract detailed book metadata:\n\n"
         for ep in episodes:
             combined_prompt += f"--- EPISODE START ---\n"
             combined_prompt += f"Episode ID: {ep['episode_id']}\n"
@@ -105,12 +135,20 @@ class BookExtractor:
                 blocks = data.get("blocks", [])
                 
                 all_flattened_results = []
-                id_to_title = {ep['episode_id']: ep['episode_title'] for ep in episodes}
+                id_to_transcript = {str(ep['episode_id']): ep['episode_transcript'] for ep in episodes}
+                id_to_title = {str(ep['episode_id']): ep['episode_title'] for ep in episodes}
                 
                 for block in blocks:
-                    context = block.get('context_quote', '')
                     eid = str(block.get('episode_id', 'unknown'))
+                    transcript = id_to_transcript.get(eid, "")
                     ep_name = id_to_title.get(eid, 'Unknown Episode')
+                    
+                    # Use anchor-based extraction
+                    context = self._extract_verbatim_text(
+                        transcript, 
+                        block.get('start_snippet', ''), 
+                        block.get('end_snippet', '')
+                    )
                     
                     for book in block.get('books', []):
                         # Flatten the structure for the existing database/CSV index

@@ -8,7 +8,8 @@ from openai import OpenAI
 from .utils import safe_json_loads
 
 class SearchResult(BaseModel):
-    goodreads_url: Optional[str] = Field(description="The official Goodreads URL for the book.")
+    goodreads_url: Optional[str] = Field(description="The official Goodreads URL for the book. Must be a /book/show/ link.")
+    page_title: Optional[str] = Field(description="The title of the Goodreads page found. Used for verification.")
     confidence: float = Field(description="Confidence score from 0 to 1.")
     search_query_used: str = Field(description="The exact query used for the search.")
 
@@ -40,21 +41,25 @@ class BookSearcher:
         3. EXTRACT: You MUST find the actual URL from the search results. 
            - Valid format: https://www.goodreads.com/book/show/[ID]-[Title]
            - DO NOT guess the ID. If you don't see a URL with '/book/show/', it's likely not a direct book page.
-        4. VERIFY: Ensure the URL points to the correct book and author.
+        4. VERIFY: Capture the title of the page you found to ensure it matches the requested book.
         
         CRITICAL RULES:
         - DO NOT CONSTRUCT OR GUESS THE URL. If the search results don't provide a clear '/book/show/' link, return null.
         - AVOID search result pages (e.g., /search?q=...).
         - If the URL you provide leads to a 404 or "Page not found", it's because you guessed the ID. DO NOT GUESS.
+        - Accuracy is more important than providing a link. If unsure, return null.
         """
 
-    def search_goodreads(self, book_name: str, author_name: Optional[str], max_retries: int = 5) -> Dict[str, Any]:
+    def search_goodreads(self, book_name: str, author_name: Optional[str], exclude_urls: List[str] = [], max_retries: int = 5) -> Dict[str, Any]:
         """
         Searches for a Goodreads URL for a specific book and author.
         Returns a dict with 'result' and 'usage'.
         """
         query_hint = f"'{book_name}' by {author_name}" if author_name else f"'{book_name}'"
         prompt = f"Find the official Goodreads URL for the book: {query_hint}. Use the query pattern: '[Title] [Author] book goodreads'."
+        
+        if exclude_urls:
+            prompt += f"\n\nCRITICAL: DO NOT return any of these URLs as they have been verified as incorrect: {', '.join(exclude_urls)}"
         
         retries = 0
         while retries < max_retries:

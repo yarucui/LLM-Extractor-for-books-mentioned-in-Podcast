@@ -9,6 +9,8 @@ from pipeline.searcher import BookSearcher
 from pipeline.verifier import BookVerifier
 from pipeline.storage import BookStorage
 from pipeline.utils import TokenTracker
+from pipeline.inspector import URLInspector
+from pipeline.scraper import GoodreadsScraper
 
 def main():
     # Load environment variables
@@ -36,12 +38,24 @@ def main():
     print(f"API Key detected: {masked_key}")
 
     # Initialize components
+    extractor_model = os.getenv("EXTRACTOR_MODEL", args.model)
+    searcher_model = os.getenv("SEARCHER_MODEL", args.model)
+    verifier_model = os.getenv("VERIFIER_MODEL", args.model)
+    inspector_model = os.getenv("INSPECTOR_MODEL", args.model)
+
+    print(f"Extractor Model: {extractor_model}")
+    print(f"Searcher Model:  {searcher_model}")
+    print(f"Verifier Model:  {verifier_model}")
+    print(f"Inspector Model: {inspector_model}")
+
     loader = PodcastLoader(args.raw_text_dir)
-    extractor = BookExtractor(args.api_key, args.model)
-    searcher = BookSearcher(args.api_key, args.model)
-    verifier = BookVerifier(args.api_key, args.model)
+    extractor = BookExtractor(args.api_key, extractor_model)
+    searcher = BookSearcher(args.api_key, searcher_model)
+    verifier = BookVerifier(args.api_key, verifier_model)
     storage = BookStorage(args.output_file, args.db_file)
     tracker = TokenTracker(args.model)
+    inspector = URLInspector(args.api_key, inspector_model)
+    scraper = GoodreadsScraper()
     
     # Get all JSON files in the raw_text directory
     json_files = loader.get_all_json_files()
@@ -77,7 +91,8 @@ def main():
             mentions = extraction_data.get("mentions", [])
             tracker.add_usage(
                 extraction_data["usage"]["prompt_tokens"], 
-                extraction_data["usage"]["completion_tokens"]
+                extraction_data["usage"]["completion_tokens"],
+                model_name=extractor.model_name
             )
             
             if mentions:
@@ -88,21 +103,61 @@ def main():
                 try:
                     for m in tqdm(mentions, desc="Processing Mentions", leave=False):
                         try:
-                            # 2a. Dedicated Search Agent for Goodreads URL
-                            search_data = searcher.search_goodreads(m.get('book_name', ''), m.get('author_name'))
-                            tracker.add_usage(
-                                search_data["usage"]["prompt_tokens"], 
-                                search_data["usage"]["completion_tokens"]
-                            )
+                            # 2a. Verified Search Loop
+                            exclude_urls = []
+                            best_url = None
                             
-                            m['goodreads_url'] = search_data["result"].get('goodreads_url')
-                            m['search_query_used'] = search_data["result"].get('search_query_used', '')
+                            for attempt in range(2): # Try up to 2 different URLs
+                                search_data = searcher.search_goodreads(m.get('book_name', ''), m.get('author_name'), exclude_urls=exclude_urls)
+                                tracker.add_usage(
+                                    search_data["usage"]["prompt_tokens"], 
+                                    search_data["usage"]["completion_tokens"],
+                                    model_name=searcher.model_name
+                                )
+                                
+                                url = search_data["result"].get('goodreads_url')
+                                if not url:
+                                    break
+                                    
+                                # 1. Scrape the URL (Fast & Free)
+                                print(f"Scraping URL: {url}...")
+                                scrape_res = scraper.scrape_book_metadata(url)
+                                
+                                if scrape_res.get("error"):
+                                    print(f"Scrape Error: {scrape_res['error']}. Falling back to exclude.")
+                                    exclude_urls.append(url)
+                                    continue
+
+                                # 2. Inspect the Metadata (LLM Fuzzy Match)
+                                inspect_data = inspector.inspect_metadata(
+                                    scrape_res.get("title"), 
+                                    scrape_res.get("author"), 
+                                    m.get('book_name', ''), 
+                                    m.get('author_name')
+                                )
+                                tracker.add_usage(
+                                    inspect_data["usage"]["prompt_tokens"], 
+                                    inspect_data["usage"]["completion_tokens"],
+                                    model_name=inspector.model_name
+                                )
+                                
+                                if inspect_data["result"].get("is_match"):
+                                    best_url = url
+                                    print(f"URL Verified: {url}")
+                                    break
+                                else:
+                                    print(f"URL Rejected: {url}. Reason: {inspect_data['result'].get('reason')}")
+                                    exclude_urls.append(url)
+                                    time.sleep(1)
+                            
+                            m['goodreads_url'] = best_url
                             
                             # 2b. Audit/Verification
                             verification_data = verifier.verify_mention(m)
                             tracker.add_usage(
                                 verification_data["usage"]["prompt_tokens"], 
-                                verification_data["usage"]["completion_tokens"]
+                                verification_data["usage"]["completion_tokens"],
+                                model_name=verifier.model_name
                             )
                             
                             final_mentions.append(verification_data["mention"])
@@ -110,7 +165,7 @@ def main():
                             print(f"Error processing mention: {ve}")
                             final_mentions.append(m)
                         # Small delay between calls to respect RPM
-                        time.sleep(2) 
+                        time.sleep(1) 
                 except KeyboardInterrupt:
                     print("\nProcessing interrupted by user. Saving progress so far...")
                 

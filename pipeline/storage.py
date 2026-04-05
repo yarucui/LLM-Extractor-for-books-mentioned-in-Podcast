@@ -13,6 +13,7 @@ class BookStorage:
         """
         Saves a list of book mentions to a JSON file.
         Appends to the file if it already exists.
+        Includes deduplication based on context_quote.
         """
         json_file = self.output_file.replace('.csv', '.json')
         
@@ -24,28 +25,44 @@ class BookStorage:
             except Exception:
                 existing_data = []
         
-        # Combine and save
+        # Combine
         combined_data = existing_data + mentions
-        with open(json_file, 'w', encoding='utf-8') as f:
-            json.dump(combined_data, f, indent=2, ensure_ascii=False)
         
-        print(f"Saved {len(mentions)} mentions to {json_file}")
+        # Deduplicate
+        seen = set()
+        unique_data = []
+        for item in combined_data:
+            key = (item.get('context_quote', ''), item.get('book_name', ''))
+            if key not in seen:
+                seen.add(key)
+                unique_data.append(item)
+        
+        with open(json_file, 'w', encoding='utf-8') as f:
+            json.dump(unique_data, f, indent=2, ensure_ascii=False)
+        
+        print(f"Saved {len(mentions)} mentions to {json_file} (Deduplicated)")
 
     def save_to_csv(self, mentions: List[Dict[str, Any]]):
         """
         Saves a list of book mentions to a CSV file.
         Appends to the file if it already exists, handling new columns.
         Uses utf-8-sig encoding to prevent Mojibake in Excel.
+        Includes deduplication based on context_quote.
         """
         df_new = pd.DataFrame(mentions)
         if not os.path.exists(self.output_file):
-            df_new.to_csv(self.output_file, index=False, encoding='utf-8-sig')
+            df_combined = df_new
         else:
             df_old = pd.read_csv(self.output_file, encoding='utf-8-sig')
             # Combine old and new, ensuring all columns are present
             df_combined = pd.concat([df_old, df_new], ignore_index=True)
-            df_combined.to_csv(self.output_file, index=False, encoding='utf-8-sig')
-        print(f"Saved {len(mentions)} mentions to {self.output_file}")
+        
+        # Deduplicate based on context_quote and book_name
+        if not df_combined.empty:
+            df_combined = df_combined.drop_duplicates(subset=['context_quote', 'book_name'], keep='first')
+            
+        df_combined.to_csv(self.output_file, index=False, encoding='utf-8-sig')
+        print(f"Saved {len(mentions)} mentions to {self.output_file} (Deduplicated)")
 
     def save_to_db(self, mentions: List[Dict[str, Any]]):
         """
