@@ -128,6 +128,10 @@ def main():
                                     exclude_urls.append(url)
                                     continue
 
+                                # Store scraped metadata for manual inspection
+                                m['scraped_book_name'] = scrape_res.get("title")
+                                m['scraped_author_name'] = scrape_res.get("author")
+
                                 # 2. Inspect the Metadata (LLM Fuzzy Match)
                                 inspect_data = inspector.inspect_metadata(
                                     scrape_res.get("title"), 
