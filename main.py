@@ -107,6 +107,12 @@ def main():
                             exclude_urls = []
                             best_url = None
                             
+                            # Initialize fields
+                            m['scraped_book_name'] = ""
+                            m['scraped_author_name'] = ""
+                            m['url_verified'] = False
+                            m['rejection_reason'] = ""
+                            
                             for attempt in range(2): # Try up to 2 different URLs
                                 search_data = searcher.search_goodreads(m.get('book_name', ''), m.get('author_name'), exclude_urls=exclude_urls)
                                 tracker.add_usage(
@@ -117,6 +123,7 @@ def main():
                                 
                                 url = search_data["result"].get('goodreads_url')
                                 if not url:
+                                    m['rejection_reason'] = "Searcher returned no URL"
                                     break
                                     
                                 # 1. Scrape the URL (Fast & Free)
@@ -124,13 +131,11 @@ def main():
                                 scrape_res = scraper.scrape_book_metadata(url)
                                 
                                 if scrape_res.get("error"):
-                                    print(f"Scrape Error: {scrape_res['error']}. Falling back to exclude.")
+                                    reason = f"Scrape Error: {scrape_res['error']}"
+                                    print(f"{reason}. Falling back to exclude.")
+                                    m['rejection_reason'] = reason
                                     exclude_urls.append(url)
                                     continue
-
-                                # Store scraped metadata for manual inspection
-                                m['scraped_book_name'] = scrape_res.get("title")
-                                m['scraped_author_name'] = scrape_res.get("author")
 
                                 # 2. Inspect the Metadata (LLM Fuzzy Match)
                                 inspect_data = inspector.inspect_metadata(
@@ -147,16 +152,23 @@ def main():
                                 
                                 if inspect_data["result"].get("is_match"):
                                     best_url = url
+                                    m['url_verified'] = True
+                                    m['scraped_book_name'] = scrape_res.get("title")
+                                    m['scraped_author_name'] = scrape_res.get("author")
+                                    m['rejection_reason'] = "" # Clear if success
                                     print(f"URL Verified: {url}")
                                     break
                                 else:
-                                    print(f"URL Rejected: {url}. Reason: {inspect_data['result'].get('reason')}")
+                                    reason = inspect_data["result"].get("reason", "Unknown rejection")
+                                    print(f"URL Rejected: {url}. Reason: {reason}")
+                                    m['rejection_reason'] = reason
                                     exclude_urls.append(url)
                                     time.sleep(1)
                             
                             m['goodreads_url'] = best_url
                             
-                            # 2b. Audit/Verification
+                            # 2b. Audit/Verification (Final line of defense)
+                            # If best_url is still None, the verifier will try to find it using its own web search.
                             verification_data = verifier.verify_mention(m)
                             tracker.add_usage(
                                 verification_data["usage"]["prompt_tokens"], 

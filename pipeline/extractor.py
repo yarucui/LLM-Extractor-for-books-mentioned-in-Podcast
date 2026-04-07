@@ -57,34 +57,62 @@ class BookExtractor:
   - Do not summarize or use ellipses. Just provide the markers.
   """
 
+    def _normalize_text(self, text: str) -> str:
+        """
+        Removes all non-alphanumeric characters and converts to lowercase for robust matching.
+        """
+        return re.sub(r'[^a-z0-9]', '', text.lower())
+
     def _extract_verbatim_text(self, transcript: str, start_snippet: str, end_snippet: str) -> str:
         """
-        Helper to extract text between two markers in the original transcript.
+        Advanced helper to extract text between two markers using normalized fuzzy matching.
         """
         try:
-            # Clean snippets of potential LLM artifacts
+            # 1. Try exact match first (fastest)
             start_snippet = start_snippet.strip().replace('...', '')
             end_snippet = end_snippet.strip().replace('...', '')
             
             start_idx = transcript.find(start_snippet)
-            if start_idx == -1:
-                # Try a fuzzy match if exact fails (first 10 chars)
-                start_idx = transcript.find(start_snippet[:10])
-                
             if start_idx != -1:
-                end_search_start = start_idx + len(start_snippet)
-                end_idx = transcript.find(end_snippet, end_search_start)
-                
-                if end_idx == -1:
-                    # Try fuzzy match for end (last 10 chars)
-                    end_idx = transcript.find(end_snippet[-10:], end_search_start)
-                
+                end_idx = transcript.find(end_snippet, start_idx + len(start_snippet))
                 if end_idx != -1:
                     return transcript[start_idx : end_idx + len(end_snippet)].strip()
+
+            # 2. Robust Normalized Search
+            # We create a mapping of normalized characters back to original indices
+            norm_transcript = ""
+            index_map = []
+            for i, char in enumerate(transcript):
+                norm_char = char.lower()
+                if norm_char.isalnum():
+                    norm_transcript += norm_char
+                    index_map.append(i)
+            
+            norm_start = self._normalize_text(start_snippet)
+            norm_end = self._normalize_text(end_snippet)
+            
+            # Find start in normalized text
+            norm_start_idx = norm_transcript.find(norm_start)
+            if norm_start_idx == -1:
+                # Try even shorter prefix if still not found
+                norm_start_idx = norm_transcript.find(norm_start[:15])
+            
+            if norm_start_idx != -1:
+                # Find end in normalized text starting from norm_start_idx
+                norm_end_idx = norm_transcript.find(norm_end, norm_start_idx + len(norm_start))
+                if norm_end_idx == -1:
+                    # Try even shorter suffix
+                    norm_end_idx = norm_transcript.find(norm_end[-15:], norm_start_idx + len(norm_start))
+                
+                if norm_end_idx != -1:
+                    # Map back to original indices
+                    real_start = index_map[norm_start_idx]
+                    real_end = index_map[norm_end_idx + len(norm_end) - 1] + 1
+                    return transcript[real_start:real_end].strip()
             
             return f"[Extraction failed for markers: {start_snippet[:30]}...{end_snippet[-30:]}]"
-        except Exception:
-            return "[Extraction Error]"
+        except Exception as e:
+            return f"[Extraction Error: {str(e)}]"
 
     def extract_mentions_batch(self, episodes: List[Dict[str, Any]], max_retries: int = 5) -> Dict[str, Any]:
         """
