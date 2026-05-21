@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 import pandas as pd
 from pydantic import BaseModel, Field
 from openai import OpenAI
+from pipeline.cache import BookCache
 from pipeline.scraper import GoodreadsScraper
 from pipeline.utils import safe_json_loads, TokenTracker
 
@@ -318,8 +319,10 @@ def main():
     parser.add_argument("--max_attempts", type=int, default=3, help="Max different URLs to try per book")
     parser.add_argument("--delay", type=float, default=1.5, help="Delay in seconds between books")
 
+    parser.add_argument("--cache_file", default="book_cache.json", help="Path to book cache JSON file (default: book_cache.json)")
+
     # Backend-specific options
-    parser.add_argument("--api_key", help="API key (or set GEMINI_API_KEY / PERPLEXITY_API_KEY in .env)")
+    parser.add_argument("--api_key", help="API key (or set GEMINI_API_KEY in .env)")
     parser.add_argument("--model", help="Model name override")
     args = parser.parse_args()
 
@@ -372,12 +375,14 @@ def main():
     verifier = MetadataVerifier(api_key, inspector_model)
     scraper = GoodreadsScraper()
     tracker = TokenTracker(model)
+    cache = BookCache(args.cache_file)
 
     masked_key = f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 10 else "***"
     print(f"Backend:  {args.backend}")
     print(f"Model:    {searcher.model_name}")
     print(f"API Key:  {masked_key}")
     print(f"Output:   {output_file}")
+    print(f"Cache:    {args.cache_file} ({len(cache)} entries)")
     print()
 
     # ── Ensure output columns exist ──
@@ -388,6 +393,7 @@ def main():
     # ── Process each target row ──
     success_count = 0
     fail_count = 0
+    cache_hit_count = 0
 
     try:
         for i, idx in enumerate(target_indices):
@@ -397,6 +403,22 @@ def main():
 
             print(f"[{i+1}/{len(target_indices)}] {book_name}" + (f" by {author_name}" if author_name else ""))
 
+            # ── Cache lookup ──
+            cached = cache.get(book_name, author_name)
+            if cached and cached.get("goodreads_url"):
+                url = cached["goodreads_url"]
+                print(f"  CACHE HIT: {url}")
+                df.at[idx, "goodreads_url"] = url
+                df.at[idx, "url_verified"] = True
+                df.at[idx, "scraped_book_name"] = cached.get("scraped_book_name", "")
+                df.at[idx, "scraped_author_name"] = cached.get("scraped_author_name", "")
+                df.at[idx, "rejection_reason"] = ""
+                df.at[idx, "rematch_backend"] = "cache"
+                success_count += 1
+                cache_hit_count += 1
+                continue
+
+            # ── Search → Scrape → Verify loop ──
             exclude_urls = []
             matched = False
 
@@ -453,6 +475,15 @@ def main():
                     df.at[idx, "rematch_backend"] = args.backend
                     matched = True
                     success_count += 1
+
+                    # ── Write to cache ──
+                    cache.put(book_name, author_name, {
+                        "goodreads_url": url,
+                        "scraped_book_name": scraped_title or "",
+                        "scraped_author_name": scraped_author or "",
+                        "book_name": book_name,
+                        "author_name": author_name,
+                    })
                     break
                 else:
                     reason = verify_data["result"].get("reason", "Unknown")
@@ -480,8 +511,10 @@ def main():
     print(f"REMATCH SUMMARY")
     print(f"{'='*50}")
     print(f"Total processed: {success_count + fail_count}")
-    print(f"Verified:        {success_count}")
+    print(f"Cache hits:      {cache_hit_count} (free)")
+    print(f"Verified (new):  {success_count - cache_hit_count}")
     print(f"Still failed:    {fail_count}")
+    print(f"Cache size:      {len(cache)} entries")
     print(tracker.get_report())
 
 
