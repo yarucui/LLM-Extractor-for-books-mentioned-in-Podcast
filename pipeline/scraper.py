@@ -1,3 +1,4 @@
+import re
 import requests
 from bs4 import BeautifulSoup
 import time
@@ -14,7 +15,7 @@ class GoodreadsScraper:
         """
         Scrapes title and author from a Goodreads book page with retry logic for 503 errors.
         """
-        if not url or "goodreads.com/book/show/" not in url:
+        if not url or not re.search(r'goodreads\.com/(?:en/)?book/show/', url):
             return {"title": None, "author": None, "error": "Invalid Goodreads URL"}
 
         retries = 0
