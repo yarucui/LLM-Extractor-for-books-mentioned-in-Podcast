@@ -5,9 +5,9 @@ A standalone script that re-processes book mentions from the main pipeline's CSV
 rematching failed or missing Goodreads URLs using web-search-enabled LLMs, then verifying
 each URL by scraping the Goodreads page and comparing metadata.
 
-Supports two search backends:
-  - gemini:  OpenRouter with :online suffix (web search via Gemini)
-  - perplexity: Perplexity API with sonar model (native web search)
+Supports two search backends (both via OpenRouter):
+  - gemini:     Gemini model with :online suffix (web search)
+  - perplexity: Perplexity sonar model (native web search)
 
 Usage:
   python rematch_goodreads.py --input book_mentions_research.csv --backend gemini
@@ -121,13 +121,18 @@ class GeminiSearchBackend:
 
 
 class PerplexitySearchBackend:
-    """Uses Perplexity API with sonar model for native web search."""
+    """Uses Perplexity sonar model via OpenRouter for native web search."""
 
     def __init__(self, api_key: str, model: str):
         api_key = api_key.strip().strip('"').strip("'")
         self.client = OpenAI(
-            base_url="https://api.perplexity.ai",
+            base_url="https://openrouter.ai/api/v1",
             api_key=api_key,
+            default_headers={
+                "Authorization": f"Bearer {api_key}",
+                "HTTP-Referer": os.getenv("APP_URL", "https://ai.studio/build"),
+                "X-OpenRouter-Title": "Goodreads Rematcher (Perplexity)",
+            }
         )
         self.model_name = model
         self.name = "perplexity"
@@ -203,29 +208,20 @@ class PerplexitySearchBackend:
 # ── Metadata verification via LLM ───────────────────────────────────────
 
 class MetadataVerifier:
-    """LLM-based fuzzy comparison of scraped vs expected book metadata."""
+    """LLM-based fuzzy comparison of scraped vs expected book metadata. Uses OpenRouter."""
 
-    def __init__(self, api_key: str, model: str, backend_name: str):
+    def __init__(self, api_key: str, model: str):
         api_key = api_key.strip().strip('"').strip("'")
-        if backend_name == "perplexity":
-            self.client = OpenAI(
-                base_url="https://api.perplexity.ai",
-                api_key=api_key,
-            )
-            self.model_name = model
-            self.use_json_schema = False
-        else:
-            self.client = OpenAI(
-                base_url="https://openrouter.ai/api/v1",
-                api_key=api_key,
-                default_headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "HTTP-Referer": os.getenv("APP_URL", "https://ai.studio/build"),
-                    "X-OpenRouter-Title": "Goodreads Rematcher Verifier",
-                }
-            )
-            self.model_name = model.replace(":online", "")
-            self.use_json_schema = True
+        self.client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+            default_headers={
+                "Authorization": f"Bearer {api_key}",
+                "HTTP-Referer": os.getenv("APP_URL", "https://ai.studio/build"),
+                "X-OpenRouter-Title": "Goodreads Rematcher Verifier",
+            }
+        )
+        self.model_name = model.replace(":online", "")
 
     def verify(self, scraped_title: Optional[str], scraped_author: Optional[str],
                expected_title: str, expected_author: Optional[str]) -> Dict[str, Any]:
@@ -253,24 +249,21 @@ class MetadataVerifier:
         system = "You are a metadata auditor matching podcast book mentions to Goodreads pages. The podcast-extracted title is often inaccurate."
 
         try:
-            kwargs = dict(
+            resp = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": prompt},
                 ],
-            )
-            if self.use_json_schema:
-                kwargs["response_format"] = {
+                response_format={
                     "type": "json_schema",
                     "json_schema": {
                         "name": "metadata_verification",
                         "strict": True,
                         "schema": MetadataVerification.model_json_schema(),
                     }
-                }
-
-            resp = self.client.chat.completions.create(**kwargs)
+                },
+            )
             usage = {"prompt_tokens": resp.usage.prompt_tokens, "completion_tokens": resp.usage.completion_tokens}
             data = safe_json_loads(resp.choices[0].message.content)
             if data and isinstance(data, dict):
@@ -330,20 +323,18 @@ def main():
     parser.add_argument("--model", help="Model name override")
     args = parser.parse_args()
 
-    # ── Resolve API key & model ──
-    if args.backend == "gemini":
-        api_key = args.api_key or os.getenv("GEMINI_API_KEY", "")
-        model = args.model or os.getenv("SEARCHER_MODEL", os.getenv("GEMINI_MODEL", "google/gemini-3-flash-preview"))
-        inspector_model = args.model or os.getenv("INSPECTOR_MODEL", os.getenv("GEMINI_MODEL", "google/gemini-3-flash-preview"))
-    else:
-        api_key = args.api_key or os.getenv("PERPLEXITY_API_KEY", "")
-        model = args.model or "sonar"
-        inspector_model = model
-
+    # ── Resolve API key & model (both backends use OpenRouter) ──
+    api_key = args.api_key or os.getenv("GEMINI_API_KEY", "")
     if not api_key:
-        key_name = "GEMINI_API_KEY" if args.backend == "gemini" else "PERPLEXITY_API_KEY"
-        print(f"Error: No API key. Set {key_name} in .env or pass --api_key.")
+        print("Error: No API key. Set GEMINI_API_KEY in .env or pass --api_key.")
         sys.exit(1)
+
+    if args.backend == "gemini":
+        model = args.model or os.getenv("SEARCHER_MODEL", os.getenv("GEMINI_MODEL", "google/gemini-3-flash-preview"))
+        inspector_model = os.getenv("INSPECTOR_MODEL", os.getenv("GEMINI_MODEL", "google/gemini-3-flash-preview"))
+    else:
+        model = args.model or "perplexity/sonar"
+        inspector_model = os.getenv("INSPECTOR_MODEL", os.getenv("GEMINI_MODEL", "google/gemini-3-flash-preview"))
 
     output_file = args.output or args.input.replace(".csv", "_rematched.csv")
 
@@ -378,7 +369,7 @@ def main():
     else:
         searcher = PerplexitySearchBackend(api_key, model)
 
-    verifier = MetadataVerifier(api_key, inspector_model, args.backend)
+    verifier = MetadataVerifier(api_key, inspector_model)
     scraper = GoodreadsScraper()
     tracker = TokenTracker(model)
 
