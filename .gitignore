@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# benchmark/: the tool is versioned, but the gold set (contains transcript
+# excerpts) and run outputs are generated locally and not committed
+benchmark/goldset.csv
+benchmark/results_*
